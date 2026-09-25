@@ -1,0 +1,39 @@
+# Environment and secrets
+.env
+.env.*
+!.env.example
+**/.env
+**/.env.*
+!**/.env.example
+
+# Dependencies
+node_modules/
+**/node_modules/
+
+# Build output
+.next/
+**/.next/
+out/
+**/out/
+dist/
+**/dist/
+build/
+**/build/
+
+# TypeScript and tooling caches
+*.tsbuildinfo
+coverage/
+**/coverage/
+.vercel/
+
+# Local editor and OS files
+.vscode/*.local.json
+.DS_Store
+Thumbs.db
+
+# Nested repository metadata from the former frontend repo
+frontend/.git-frontend-backup/
+
+# Local agent metadata
+.agents/
+**/.agents/

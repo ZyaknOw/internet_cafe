@@ -1,0 +1,1078 @@
+/* ==========================================================================
+   ETHER.CAFE — Client Portal Dashboard Styles
+   Pixel-accurate styling matching the reference design
+   ========================================================================== */
+
+/* Main Layout Shell */
+.client-portal-root {
+  min-height: 100vh;
+  background-color: #f5f1ea;
+  color: #1a241e;
+  font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto, "Helvetica Neue", Arial, sans-serif;
+  display: flex;
+  position: relative;
+}
+
+/* --------------------------------------------------------------------------
+   Fixed Sidebar (Dark Forest-Green)
+   -------------------------------------------------------------------------- */
+.client-sidebar {
+  width: 252px;
+  min-width: 252px;
+  height: 100vh;
+  position: fixed;
+  top: 0;
+  left: 0;
+  bottom: 0;
+  background: linear-gradient(180deg, #10241b 0%, #0c1b14 100%);
+  border-right: 1px solid rgba(255, 255, 255, 0.07);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 24px 18px 22px;
+  z-index: 60;
+  box-shadow: 4px 0 30px rgba(7, 18, 12, 0.25);
+  overflow: hidden;
+  user-select: none;
+}
+
+/* Subtle ambient background glow inside sidebar */
+.client-sidebar::before {
+  content: "";
+  position: absolute;
+  top: -100px;
+  left: -80px;
+  width: 240px;
+  height: 240px;
+  background: radial-gradient(circle, rgba(62, 142, 94, 0.15) 0%, transparent 70%);
+  pointer-events: none;
+}
+
+/* Botanical leaf watermark at bottom left of sidebar */
+.client-sidebar-watermark {
+  position: absolute;
+  bottom: -20px;
+  left: -15px;
+  width: 170px;
+  height: 230px;
+  opacity: 0.16;
+  pointer-events: none;
+  z-index: 1;
+}
+
+.client-sidebar-content {
+  position: relative;
+  z-index: 2;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  justify-content: space-between;
+}
+
+/* Sidebar Brand Header */
+.client-sidebar-brand {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  padding: 2px 4px 22px;
+  text-decoration: none;
+}
+
+.client-sidebar-logo-badge {
+  width: 42px;
+  height: 42px;
+  border-radius: 50%;
+  background: rgba(255, 255, 255, 0.08);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #c7decb;
+  flex-shrink: 0;
+  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+}
+
+.client-sidebar-brand-text {
+  display: flex;
+  flex-direction: column;
+}
+
+.client-sidebar-brand-title {
+  font-family: var(--font-playfair, Georgia, serif);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  color: #ffffff;
+  line-height: 1.2;
+}
+
+.client-sidebar-brand-subtitle {
+  font-size: 11.5px;
+  color: #8da595;
+  letter-spacing: 0.02em;
+  font-weight: 400;
+  margin-top: 1px;
+}
+
+/* Navigation List (ONLY: Home, Sessions, Book Room, Pre-order, Transactions, Account) */
+.client-sidebar-nav {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.client-nav-item {
+  display: flex;
+  align-items: center;
+  gap: 13px;
+  padding: 11px 16px;
+  border-radius: 12px;
+  font-size: 13.5px;
+  font-weight: 500;
+  color: rgba(255, 255, 255, 0.68);
+  background: transparent;
+  border: 1px solid transparent;
+  cursor: pointer;
+  text-align: left;
+  width: 100%;
+  transition: all 0.18s ease-in-out;
+}
+
+.client-nav-item:hover {
+  background: rgba(255, 255, 255, 0.07);
+  color: #ffffff;
+}
+
+/* Active Nav Item (Home) */
+.client-nav-item.active {
+  background: linear-gradient(90deg, rgba(255, 255, 255, 0.17) 0%, rgba(255, 255, 255, 0.09) 100%);
+  border: 1px solid rgba(255, 255, 255, 0.22);
+  color: #ffffff;
+  font-weight: 600;
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.2);
+}
+
+.client-nav-icon {
+  width: 18px;
+  height: 18px;
+  flex-shrink: 0;
+}
+
+/* Sidebar Footer */
+.client-sidebar-footer {
+  margin-top: auto;
+  padding-top: 20px;
+}
+
+.client-sidebar-quote {
+  font-family: var(--font-playfair, Georgia, serif);
+  font-style: italic;
+  font-size: 12.5px;
+  line-height: 1.45;
+  color: rgba(255, 255, 255, 0.65);
+  margin: 0 0 10px 0;
+  max-width: 195px;
+}
+
+.client-sidebar-divider {
+  width: 28px;
+  height: 2px;
+  background: rgba(201, 169, 106, 0.55);
+  border-radius: 2px;
+  margin-bottom: 14px;
+}
+
+.client-sidebar-timestamp {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+}
+
+.client-sidebar-date {
+  font-size: 11px;
+  color: rgba(255, 255, 255, 0.48);
+  letter-spacing: 0.02em;
+}
+
+.client-sidebar-time {
+  font-size: 12px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.85);
+  letter-spacing: 0.03em;
+}
+
+/* --------------------------------------------------------------------------
+   Main Content Area
+   -------------------------------------------------------------------------- */
+.client-main-wrapper {
+  margin-left: 252px;
+  flex: 1;
+  min-height: 100vh;
+  display: flex;
+  flex-direction: column;
+  background-color: #f5f1ea;
+}
+
+.client-main-content {
+  flex: 1;
+  padding: 24px 34px 28px;
+  max-width: 1360px;
+  width: 100%;
+  margin: 0 auto;
+}
+
+/* Mobile top bar */
+.client-mobile-bar {
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  padding: 14px 20px;
+  background: #10241b;
+  color: #ffffff;
+  position: sticky;
+  top: 0;
+  z-index: 70;
+}
+
+/* --------------------------------------------------------------------------
+   Header Bar
+   -------------------------------------------------------------------------- */
+.client-header-bar {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  margin-bottom: 18px;
+  gap: 16px;
+}
+
+.client-header-titles h1 {
+  font-family: var(--font-playfair, Georgia, serif);
+  font-size: 27px;
+  font-weight: 700;
+  color: #14221a;
+  line-height: 1.18;
+  margin: 0;
+}
+
+.client-header-titles p {
+  color: #647067;
+  font-size: 13.5px;
+  margin: 4px 0 0;
+}
+
+.client-header-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  flex-shrink: 0;
+}
+
+/* Theme Toggle Capsule */
+.client-theme-toggle {
+  background: #ffffff;
+  border: 1px solid #dfd8cb;
+  border-radius: 999px;
+  padding: 4px 10px;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  box-shadow: 0 1px 4px rgba(0, 0, 0, 0.04);
+  cursor: pointer;
+  transition: all 0.2s ease;
+}
+
+.client-theme-toggle:hover {
+  background: #faf8f3;
+  border-color: #cbbeab;
+}
+
+.client-theme-icon {
+  color: #1e2d23;
+  transition: opacity 0.2s ease;
+}
+
+.client-theme-icon.active {
+  color: #16241b;
+  opacity: 1;
+}
+
+.client-theme-icon.inactive {
+  opacity: 0.35;
+}
+
+/* Client Profile Capsule */
+.client-profile-dropdown {
+  background: transparent;
+  border: 0;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  cursor: pointer;
+  padding: 3px 8px 3px 4px;
+  border-radius: 8px;
+  transition: background 0.18s ease;
+}
+
+.client-profile-dropdown:hover {
+  background: rgba(0, 0, 0, 0.04);
+}
+
+.client-profile-avatar {
+  width: 36px;
+  height: 36px;
+  border-radius: 50%;
+  background: #12241b;
+  color: #ffffff;
+  font-size: 14px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.15);
+}
+
+.client-profile-meta {
+  display: flex;
+  flex-direction: column;
+  text-align: left;
+}
+
+.client-profile-name {
+  font-size: 13px;
+  font-weight: 600;
+  color: #15241b;
+  line-height: 1.2;
+}
+
+.client-profile-role {
+  font-size: 11px;
+  color: #727e75;
+  margin-top: 1px;
+}
+
+.client-profile-chevron {
+  color: #7b887e;
+  margin-left: 2px;
+}
+
+/* --------------------------------------------------------------------------
+   Hero Banner
+   -------------------------------------------------------------------------- */
+.client-hero-banner {
+  width: 100%;
+  height: 195px;
+  border-radius: 16px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 6px 20px rgba(16, 32, 23, 0.1);
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 24px 34px;
+}
+
+.client-hero-bg {
+  position: absolute;
+  inset: 0;
+  background-image: url("/images/dashboard/hero-cafe.jpg");
+  background-position: center right;
+  background-size: cover;
+  background-repeat: no-repeat;
+  z-index: 1;
+}
+
+.client-hero-overlay {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(
+    90deg,
+    rgba(11, 23, 16, 0.96) 0%,
+    rgba(14, 28, 20, 0.92) 42%,
+    rgba(14, 28, 20, 0.55) 75%,
+    rgba(14, 28, 20, 0.25) 100%
+  );
+  z-index: 2;
+}
+
+.client-hero-content {
+  position: relative;
+  z-index: 3;
+  max-width: 480px;
+}
+
+.client-hero-kicker {
+  font-size: 10.5px;
+  font-weight: 700;
+  letter-spacing: 0.22em;
+  color: #b5c7b9;
+  text-transform: uppercase;
+  margin: 0 0 6px 0;
+}
+
+.client-hero-title {
+  font-family: var(--font-playfair, Georgia, serif);
+  font-size: 29px;
+  font-weight: 700;
+  color: #ffffff;
+  line-height: 1.15;
+  margin: 0 0 8px 0;
+  letter-spacing: -0.01em;
+}
+
+.client-hero-subtitle {
+  font-size: 12.5px;
+  color: #d1cdc4;
+  margin: 0;
+  font-weight: 400;
+}
+
+/* Script Accent: "Your Digital Hangout!" */
+.client-hero-script-wrapper {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  margin-right: 180px;
+  transform: rotate(-6deg);
+  pointer-events: none;
+}
+
+.client-hero-script {
+  font-family: 'Caveat', 'Brush Script MT', 'Dancing Script', cursive, Georgia, serif;
+  font-size: 31px;
+  font-weight: 600;
+  color: #e5cb93;
+  line-height: 1.05;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+}
+
+.client-hero-script-sub {
+  font-family: 'Caveat', 'Brush Script MT', 'Dancing Script', cursive, Georgia, serif;
+  font-size: 34px;
+  font-weight: 600;
+  color: #eed69d;
+  line-height: 1;
+  text-shadow: 0 2px 8px rgba(0, 0, 0, 0.6);
+  white-space: nowrap;
+}
+
+.client-hero-script-underline {
+  width: 90%;
+  height: 3px;
+  background: #eed69d;
+  border-radius: 4px;
+  box-shadow: 0 2px 6px rgba(0, 0, 0, 0.4);
+  margin-top: 3px;
+  opacity: 0.85;
+}
+
+/* --------------------------------------------------------------------------
+   Summary Metric Cards Grid (4 Columns)
+   -------------------------------------------------------------------------- */
+.client-metrics-grid {
+  display: grid;
+  grid-template-columns: repeat(4, 1fr);
+  gap: 16px;
+  margin: 18px 0 20px;
+}
+
+.client-metric-card {
+  border-radius: 14px;
+  padding: 15px 18px;
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  border: 1px solid rgba(0, 0, 0, 0.04);
+  box-shadow: 0 2px 8px rgba(22, 34, 25, 0.04);
+  transition: transform 0.2s ease, box-shadow 0.2s ease;
+  min-height: 98px;
+}
+
+.client-metric-card:hover {
+  transform: translateY(-2px);
+  box-shadow: 0 6px 16px rgba(22, 34, 25, 0.07);
+}
+
+/* Card 1: Active Session (Mint Green) */
+.client-metric-card.session {
+  background: linear-gradient(135deg, #e7f5ec 0%, #f1f8f3 100%);
+}
+
+.client-metric-card.session .client-metric-icon-box {
+  background: #c3e5ce;
+  color: #154527;
+}
+
+.client-metric-card.session .client-metric-label {
+  color: #3f5e47;
+}
+
+/* Card 2: Remaining Balance (Warm Amber Gold) */
+.client-metric-card.balance {
+  background: linear-gradient(135deg, #fef4e2 0%, #faeed4 100%);
+}
+
+.client-metric-card.balance .client-metric-icon-box {
+  background: #f7ddb0;
+  color: #694417;
+}
+
+.client-metric-card.balance .client-metric-label {
+  color: #775626;
+}
+
+/* Card 3: Current Rate (Ice Blue) */
+.client-metric-card.rate {
+  background: linear-gradient(135deg, #e3f0fb 0%, #edf5fc 100%);
+}
+
+.client-metric-card.rate .client-metric-icon-box {
+  background: #cbe1f3;
+  color: #174268;
+}
+
+.client-metric-card.rate .client-metric-label {
+  color: #365b7e;
+}
+
+/* Card 4: Bookings (Soft Blush Rose) */
+.client-metric-card.bookings {
+  background: linear-gradient(135deg, #fce9ed 0%, #fdf2f4 100%);
+}
+
+.client-metric-card.bookings .client-metric-icon-box {
+  background: #f7ced7;
+  color: #762235;
+}
+
+.client-metric-card.bookings .client-metric-label {
+  color: #7a3647;
+}
+
+.client-metric-icon-box {
+  width: 44px;
+  height: 44px;
+  border-radius: 12px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  flex-shrink: 0;
+}
+
+.client-metric-info {
+  display: flex;
+  flex-direction: column;
+}
+
+.client-metric-label {
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  line-height: 1.2;
+}
+
+.client-metric-value {
+  font-family: var(--font-playfair, Georgia, serif);
+  font-size: 23px;
+  font-weight: 700;
+  color: #142118;
+  line-height: 1.15;
+  margin: 3px 0 2px;
+}
+
+.client-metric-sub {
+  font-size: 11.5px;
+  color: #6c7870;
+  line-height: 1.2;
+}
+
+/* --------------------------------------------------------------------------
+   Middle Feature Panels (3 Columns)
+   -------------------------------------------------------------------------- */
+.client-panels-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin-bottom: 20px;
+}
+
+.client-panel {
+  border-radius: 16px;
+  position: relative;
+  overflow: hidden;
+  box-shadow: 0 4px 18px rgba(18, 29, 22, 0.08);
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  padding: 22px 20px 20px;
+  min-height: 258px;
+}
+
+.client-panel-bg {
+  position: absolute;
+  inset: 0;
+  background-size: cover;
+  background-position: center;
+  z-index: 1;
+}
+
+.client-panel-overlay {
+  position: absolute;
+  inset: 0;
+  z-index: 2;
+}
+
+/* Panel 1: Session & Passes */
+.client-panel.session .client-panel-bg {
+  background-image: url("/images/dashboard/gaming-setup.jpg");
+}
+
+.client-panel.session .client-panel-overlay {
+  background: linear-gradient(180deg, rgba(14, 27, 20, 0.94) 0%, rgba(10, 21, 15, 0.9) 100%);
+}
+
+.client-panel.session .client-panel-header-icon {
+  color: #22c55e;
+}
+
+/* Panel 2: Room Booking */
+.client-panel.rooms .client-panel-bg {
+  background-image: url("/images/dashboard/discussion-room.jpg");
+}
+
+.client-panel.rooms .client-panel-overlay {
+  background: linear-gradient(180deg, rgba(31, 23, 17, 0.93) 0%, rgba(22, 16, 11, 0.88) 100%);
+}
+
+.client-panel.rooms .client-panel-header-icon {
+  color: #e5bf84;
+}
+
+/* Panel 3: Pre-order Services */
+.client-panel.preorder .client-panel-bg {
+  background-image: url("/images/dashboard/iced-latte.jpg");
+  background-position: right 25% center;
+}
+
+.client-panel.preorder .client-panel-overlay {
+  background: linear-gradient(
+    90deg,
+    rgba(34, 22, 15, 0.96) 0%,
+    rgba(34, 22, 15, 0.88) 60%,
+    rgba(34, 22, 15, 0.32) 100%
+  );
+}
+
+.client-panel.preorder .client-panel-header-icon {
+  color: #e5bf84;
+}
+
+.client-panel-content {
+  position: relative;
+  z-index: 3;
+  display: flex;
+  flex-direction: column;
+  height: 100%;
+  justify-content: space-between;
+}
+
+.client-panel-top {
+  margin-bottom: 14px;
+}
+
+.client-panel-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.client-panel-title {
+  font-family: var(--font-playfair, Georgia, serif);
+  font-size: 18px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0;
+  letter-spacing: -0.01em;
+}
+
+.client-panel-desc {
+  font-size: 12px;
+  line-height: 1.42;
+  color: rgba(255, 255, 255, 0.72);
+  margin: 0;
+}
+
+/* Panel Action Glass Rows */
+.client-panel-rows {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.client-panel-row {
+  background: rgba(255, 255, 255, 0.08);
+  backdrop-filter: blur(8px);
+  -webkit-backdrop-filter: blur(8px);
+  border: 1px solid rgba(255, 255, 255, 0.12);
+  border-radius: 10px;
+  padding: 10px 14px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #ffffff;
+  font-size: 13px;
+  font-weight: 500;
+  cursor: pointer;
+  transition: all 0.18s ease;
+  width: 100%;
+  text-align: left;
+}
+
+.client-panel-row:hover {
+  background: rgba(255, 255, 255, 0.16);
+  border-color: rgba(255, 255, 255, 0.22);
+  transform: translateY(-1px);
+}
+
+.client-panel-row-left {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.client-panel-row-icon {
+  width: 16px;
+  height: 16px;
+  color: rgba(255, 255, 255, 0.85);
+  flex-shrink: 0;
+}
+
+.client-panel-row-right {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: rgba(255, 255, 255, 0.85);
+  font-size: 12.5px;
+}
+
+.client-panel-chevron {
+  color: rgba(255, 255, 255, 0.55);
+  transition: transform 0.18s ease;
+}
+
+.client-panel-row:hover .client-panel-chevron {
+  transform: translateX(2px);
+  color: #ffffff;
+}
+
+/* --------------------------------------------------------------------------
+   Bottom Cards Grid (3 Columns)
+   -------------------------------------------------------------------------- */
+.client-bottom-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 18px;
+  margin-bottom: 22px;
+}
+
+/* Standard White Cards (Account & Privacy, Need Assistance) */
+.client-card-standard {
+  background: #ffffff;
+  border-radius: 16px;
+  border: 1px solid #e5dfd4;
+  box-shadow: 0 2px 8px rgba(22, 34, 25, 0.04);
+  padding: 18px 20px;
+  display: flex;
+  flex-direction: column;
+  justify-content: space-between;
+  min-height: 142px;
+}
+
+.client-card-standard-top {
+  display: flex;
+  flex-direction: column;
+}
+
+.client-card-standard-title-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin-bottom: 6px;
+}
+
+.client-card-standard-title {
+  font-family: var(--font-playfair, Georgia, serif);
+  font-size: 16.5px;
+  font-weight: 700;
+  color: #142219;
+  margin: 0;
+}
+
+.client-card-standard-desc {
+  font-size: 12px;
+  line-height: 1.45;
+  color: #6a766e;
+  margin: 0;
+}
+
+.client-pill-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #ffffff;
+  border: 1px solid #d4cdbf;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 12px;
+  font-weight: 600;
+  color: #16241b;
+  cursor: pointer;
+  align-self: flex-start;
+  margin-top: 14px;
+  transition: all 0.18s ease;
+}
+
+.client-pill-btn:hover {
+  background: #f7f4ee;
+  border-color: #b5ac9b;
+  transform: translateY(-1px);
+}
+
+/* Promo Card: "Good Coffee Better Games" */
+.client-card-promo {
+  background: linear-gradient(135deg, #372318 0%, #23160e 100%);
+  border-radius: 16px;
+  box-shadow: 0 4px 16px rgba(18, 29, 22, 0.12);
+  padding: 18px 20px;
+  position: relative;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  min-height: 142px;
+}
+
+.client-promo-left {
+  display: flex;
+  flex-direction: column;
+  position: relative;
+  z-index: 2;
+  max-width: 60%;
+}
+
+.client-promo-kicker {
+  font-size: 11.5px;
+  font-weight: 500;
+  color: #dcc7a2;
+  margin: 0 0 2px 0;
+}
+
+.client-promo-title {
+  font-family: var(--font-playfair, Georgia, serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: #ffffff;
+  margin: 0 0 4px 0;
+  line-height: 1.15;
+}
+
+.client-promo-desc {
+  font-size: 11px;
+  color: #c4b6a2;
+  line-height: 1.35;
+  margin: 0 0 10px 0;
+}
+
+.client-promo-btn {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  background: #f5edd9;
+  border: 0;
+  border-radius: 999px;
+  padding: 6px 14px;
+  font-size: 11.5px;
+  font-weight: 700;
+  color: #29170e;
+  cursor: pointer;
+  align-self: flex-start;
+  transition: all 0.18s ease;
+}
+
+.client-promo-btn:hover {
+  background: #ffffff;
+  transform: translateY(-1px);
+}
+
+.client-promo-image-box {
+  width: 95px;
+  height: 95px;
+  border-radius: 50%;
+  overflow: hidden;
+  position: relative;
+  z-index: 2;
+  border: 2px solid rgba(255, 255, 255, 0.2);
+  box-shadow: 0 4px 14px rgba(0, 0, 0, 0.4);
+  flex-shrink: 0;
+}
+
+.client-promo-img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+
+/* --------------------------------------------------------------------------
+   Footer Bar
+   -------------------------------------------------------------------------- */
+.client-footer-bar {
+  border-top: 1px solid #dfd9cd;
+  padding-top: 16px;
+  margin-top: 6px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  color: #727e75;
+  font-size: 12px;
+}
+
+.client-footer-left {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.client-footer-brand {
+  font-weight: 700;
+  color: #142219;
+  letter-spacing: 0.04em;
+}
+
+.client-footer-sep {
+  opacity: 0.5;
+}
+
+.client-footer-right {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  color: #5c685f;
+}
+
+/* --------------------------------------------------------------------------
+   Interactive Modals & Feedback Notifications
+   -------------------------------------------------------------------------- */
+.client-modal-overlay {
+  position: fixed;
+  inset: 0;
+  background: rgba(12, 23, 16, 0.65);
+  backdrop-filter: blur(4px);
+  -webkit-backdrop-filter: blur(4px);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  z-index: 100;
+  padding: 20px;
+  animation: clientFadeIn 0.2s ease;
+}
+
+.client-modal-card {
+  background: #ffffff;
+  border-radius: 16px;
+  padding: 28px;
+  max-width: 460px;
+  width: 100%;
+  box-shadow: 0 20px 40px rgba(0, 0, 0, 0.25);
+  border: 1px solid #e2ddd3;
+  animation: clientSlideUp 0.2s ease;
+}
+
+.client-modal-title {
+  font-family: var(--font-playfair, Georgia, serif);
+  font-size: 20px;
+  font-weight: 700;
+  color: #12241b;
+  margin: 0 0 8px;
+}
+
+.client-modal-body {
+  font-size: 13.5px;
+  color: #5a665d;
+  line-height: 1.5;
+  margin-bottom: 20px;
+}
+
+.client-modal-actions {
+  display: flex;
+  justify-content: flex-end;
+  gap: 10px;
+}
+
+@keyframes clientFadeIn {
+  from { opacity: 0; }
+  to { opacity: 1; }
+}
+
+@keyframes clientSlideUp {
+  from { transform: translateY(12px); opacity: 0; }
+  to { transform: translateY(0); opacity: 1; }
+}
+
+/* --------------------------------------------------------------------------
+   Responsive Adaptations
+   -------------------------------------------------------------------------- */
+@media (max-width: 1200px) {
+  .client-hero-script-wrapper {
+    margin-right: 20px;
+  }
+}
+
+@media (max-width: 1080px) {
+  .client-metrics-grid {
+    grid-template-columns: repeat(2, 1fr);
+  }
+  .client-panels-grid {
+    grid-template-columns: 1fr;
+  }
+  .client-bottom-grid {
+    grid-template-columns: 1fr;
+  }
+  .client-hero-script-wrapper {
+    display: none;
+  }
+}
+
+@media (max-width: 768px) {
+  .client-sidebar {
+    transform: translateX(-100%);
+    transition: transform 0.25s ease;
+  }
+  .client-sidebar.open {
+    transform: translateX(0);
+  }
+  .client-main-wrapper {
+    margin-left: 0;
+  }
+  .client-main-content {
+    padding: 16px;
+  }
+  .client-mobile-bar {
+    display: flex;
+  }
+  .client-metrics-grid {
+    grid-template-columns: 1fr;
+  }
+  .client-hero-banner {
+    height: auto;
+    padding: 22px 20px;
+  }
+  .client-header-bar {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+}

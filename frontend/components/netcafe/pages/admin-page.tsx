@@ -1,0 +1,35 @@
+"use client";
+
+import { useEffect, useState } from "react";
+import { Check, CircleDollarSign, Clock3, Computer, LayoutDashboard, ShieldCheck, TrendingUp, Users, X } from "lucide-react";
+import { Header } from "../app-shell";
+import { Customer, Profile, Session, Station } from "../types";
+import { apiFetch } from "@/lib/api";
+
+type Tab = "dashboard" | "pending" | "staff";
+const money = (value: number) => `₱${value.toFixed(2)}`;
+
+export function AdminPage({ customers, setCustomers, stations, sessions, profiles, activeProfile, setProfiles, pendingRequests, setPendingRequests }: { customers: Customer[]; setCustomers: React.Dispatch<React.SetStateAction<Customer[]>>; stations: Station[]; sessions: Session[]; profiles: Profile[]; activeProfile: Profile; setProfiles: (profiles: Profile[]) => void; pendingRequests: Customer[]; setPendingRequests: React.Dispatch<React.SetStateAction<Customer[]>> }) {
+  const [tab, setTab] = useState<Tab>("dashboard");
+  const pending = customers.filter((customer) => !customer.approved);
+  const visiblePending = pendingRequests.length ? pendingRequests : pending;
+useEffect(() => { (async () => { try { const response = await apiFetch("/api/admin/account-requests") as { requests: Array<{ id: string | number; first_name: string; middle_name: string | null; last_name: string; contact: string; created_at: string; role: "customer" | "staff" }> }; setPendingRequests(response.requests.map((record) => ({ id: record.id, name: [record.first_name, record.middle_name, record.last_name].filter(Boolean).join(" ") || "Unnamed", contact: record.contact || "", approved: false, balance: 0, totalSpent: 0, memberSince: new Date(record.created_at).toLocaleDateString(), role: record.role }))); } catch { /* ignore */ } })(); }, [setPendingRequests]);
+  const activeStations = stations.filter((station) => station.active);
+  const totalRevenue = sessions.reduce((total, session) => total + session.total, 0);
+  const tabs: [Tab, string, typeof LayoutDashboard][] = [["dashboard", "Dashboard", LayoutDashboard], ["pending", "Pending Approvals", Clock3], ["staff", "Staff Management", Users]];
+  return <><Header title="Admin Panel" /><div className="page-body admin-page"><div className="tabs admin-tabs">{tabs.map(([id, label, Icon]) => <button key={id} className={tab === id ? "selected" : ""} onClick={() => setTab(id)}><Icon size={18} /> {label}{id === "pending" && visiblePending.length > 0 && <i>{visiblePending.length}</i>}</button>)}</div>
+    {tab === "dashboard" && <Dashboard stations={stations} activeStations={activeStations.length} sessions={sessions} totalRevenue={totalRevenue} pending={visiblePending.length} profiles={profiles} />}
+{tab === "pending" && <Pending customers={visiblePending} approve={async (id) => { try { await apiFetch(`/api/admin/account-requests/${id}/approve`, { method: "POST" }); setPendingRequests(requests => requests.filter(request => request.id !== id)); setCustomers(items => items.map(item => item.id === id ? { ...item, approved: true } : item)); } catch (e) { window.alert(e instanceof Error ? e.message : "Could not approve"); } }} reject={async (id) => { try { await apiFetch(`/api/admin/account-requests/${id}/reject`, { method: "POST" }); setPendingRequests(requests => requests.filter(request => request.id !== id)); } catch (e) { window.alert(e instanceof Error ? e.message : "Could not reject"); } }} />}
+    {tab === "staff" && <Staff profiles={profiles} activeProfile={activeProfile} promote={(id) => setProfiles(profiles.map(profile => profile.id === id ? { ...profile, role: "Administrator" } : profile))} />}
+  </div></>;
+}
+
+function Dashboard({ stations, activeStations, sessions, totalRevenue, pending, profiles }: { stations: Station[]; activeStations: number; sessions: Session[]; totalRevenue: number; pending: number; profiles: Profile[] }) {
+  const cards = [[CircleDollarSign, "Today's Revenue", money(totalRevenue)], [CircleDollarSign, "Total Revenue", money(totalRevenue)], [Computer, "Active Sessions", String(activeStations)], [Clock3, "Pending Approvals", String(pending)]] as const;
+  const available = stations.length - activeStations;
+  return <><div className="metrics admin-metrics">{cards.map(([Icon, label, value]) => <article className="metric" key={label}><Icon /><p>{label}</p><b>{value}</b></article>)}</div><div className="admin-grid"><section className="panel"><div className="section-title"><Computer size={20} /> Station Status</div>{[["Available", available, "55%"], ["In Use", activeStations, "45%"], ["Offline", 0, "0%"], ["Maintenance", 0, "0%"]].map(([label, value, width]) => <div className="util" key={String(label)}><span>{label}<b>{value}</b></span><div><i style={{ width: String(width) }} /></div></div>)}</section><section className="panel"><div className="section-title"><TrendingUp size={20} /> Staff Performance</div>{profiles.map((profile) => <div className="staff" key={profile.id}><span>{profile.name[0]}</span><div><b>{profile.name}</b><p>{profile.role}</p></div><strong>{money(0)}<small>{sessions.length && profile.id === 1 ? 1 : 0} sessions</small></strong></div>)}</section></div><div className="admin-grid admin-bottom"><section className="metric"><p>Today&apos;s Sessions</p><b>{sessions.length}</b></section><section className="metric"><p>All-Time Sessions</p><b>{sessions.length}</b></section></div></>;
+}
+
+function Pending({ customers, approve, reject }: { customers: Customer[]; approve: (id: string | number) => void; reject: (id: string | number) => void }) { return <section className="panel approvals"><div className="section-title"><Clock3 size={20} /> Customer Account Requests</div><p>Staff-created customer accounts require administrator approval before they can use a registered session.</p>{customers.length ? customers.map((customer) => <div className="approval-row" key={customer.id}><span className="profile-avatar">{customer.name[0]}</span><div><b>{customer.name}</b><small>{customer.contact} · New customer account</small></div><div className="approval-actions"><button className="secondary" onClick={() => reject(customer.id)}><X size={16} /> Reject</button><button onClick={() => approve(customer.id)}><Check size={16} /> Approve</button></div></div>) : <div className="approval-empty"><Check size={28} /> No customer accounts are awaiting approval.</div>}</section>; }
+
+function Staff({ profiles, activeProfile, promote }: { profiles: Profile[]; activeProfile: Profile; promote: (id: string | number) => void }) { return <section className="staff-list">{profiles.map((profile) => <article className="staff-card" key={profile.id}><span className="detail-avatar" style={{ background: profile.color }}>{profile.name[0]}</span><div><b>{profile.name}</b>{profile.id === activeProfile.id && <em>You</em>}<small>{profile.email}</small></div><span className={profile.role === "Administrator" ? "role-pill" : "staff-pill"}>{profile.role === "Administrator" ? "Admin" : "Staff"}</span>{profile.role === "Staff" && <button onClick={() => promote(profile.id)}><ShieldCheck size={17} /> Make Admin</button>}</article>)}</section>; }
