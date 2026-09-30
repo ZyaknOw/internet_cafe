@@ -4,12 +4,12 @@ import express from "express";
 import { z } from "zod";
 import { AuthenticatedRequest, requireActiveUser, requireRole, requireSignedInProfile } from "./auth.js";
 import { supabaseAdmin } from "./supabase.js";
+import { STATION_HOURLY_RATE } from "./pc-services.js";
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_URL ?? "http://localhost:3000" }));
 app.use(express.json());
 
-const STATION_HOURLY_RATE = 50;
 const MAX_STATIONS = 8;
 
 const accountRequest = z.object({

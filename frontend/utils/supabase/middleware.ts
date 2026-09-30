@@ -16,12 +16,18 @@ export const createClient = async (request: NextRequest) => {
     supabaseUrl!,
     supabaseKey!,
     {
+      global: {
+        fetch: (input, init) => fetch(input, {
+          ...init,
+          signal: AbortSignal.timeout(5_000),
+        }),
+      },
       cookies: {
         getAll() {
           return request.cookies.getAll()
         },
         setAll(cookiesToSet) {
-          cookiesToSet.forEach(({ name, value, options }) => request.cookies.set(name, value))
+          cookiesToSet.forEach(({ name, value }) => request.cookies.set(name, value))
           supabaseResponse = NextResponse.next({
             request,
           })
@@ -33,7 +39,21 @@ export const createClient = async (request: NextRequest) => {
     },
   );
 
-  await supabase.auth.getUser();
+  // This proxy refreshes cookies; authorization remains in the authenticated
+  // API. A stalled auth service must not prevent the public page from loading.
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  try {
+    await Promise.race([
+      supabase.auth.getUser(),
+      new Promise((_, reject) => {
+        timer = setTimeout(() => reject(new Error("Session refresh timed out")), 8_000);
+      }),
+    ]);
+  } catch {
+    // Let the client display a recoverable session error if auth is unavailable.
+  } finally {
+    clearTimeout(timer);
+  }
 
   return supabaseResponse
 };

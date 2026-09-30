@@ -3,6 +3,7 @@
 import React, { createContext, useContext, useEffect, useState, useCallback } from "react";
 import { useRouter } from "next/navigation";
 import { supabase } from "@/lib/supabase/client";
+import { subscribeToSession } from "@/lib/session-loader";
 import type { User } from "@supabase/supabase-js";
 
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
@@ -36,6 +37,7 @@ interface AuthContextValue {
   profile: AccountProfile | null;
   loading: boolean;
   authError: string | null;
+  sessionError: string | null;
   login: (email: string, password: string) => Promise<{ error?: string; mustChangePassword?: boolean }>;
   logout: () => Promise<void>;
   clearAuthError: () => void;
@@ -49,6 +51,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [profile, setProfile] = useState<AccountProfile | null>(null);
   const [loading, setLoading] = useState(true);
+  const [sessionError, setSessionError] = useState<string | null>(null);
   const [authError, setAuthError] = useState<string | null>(null);
 
   const fetchProfile = useCallback(async (accessToken: string, currentUser?: User | null): Promise<AccountProfile | null> => {
@@ -56,6 +59,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
     try {
       const res = await fetch(`${API_URL}/api/me`, {
         headers: { Authorization: `Bearer ${accessToken}`, "Content-Type": "application/json" },
+        signal: AbortSignal.timeout(5_000),
       });
       if (res.ok) {
         const body = (await res.json()) as { profile: AccountProfile };
@@ -72,6 +76,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .from("account_profiles")
           .select("*")
           .eq("auth_user_id", currentUser.id)
+          .abortSignal(AbortSignal.timeout(4_000))
           .maybeSingle();
         if (byAuthId) return byAuthId as AccountProfile;
       }
@@ -81,6 +86,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
           .from("account_profiles")
           .select("*")
           .eq("email", currentUser.email.toLowerCase())
+          .abortSignal(AbortSignal.timeout(4_000))
           .maybeSingle();
         if (byEmail) return byEmail as AccountProfile;
       }
@@ -88,71 +94,28 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
       // Ignore Supabase query errors
     }
 
-    // 3. Fallback to Supabase user metadata / email if account_profiles record is missing
-    if (currentUser) {
-      const metaRole = (currentUser.user_metadata?.role as UserRole) || "customer";
-      return {
-        id: currentUser.id,
-        auth_user_id: currentUser.id,
-        role: metaRole,
-        status: "active",
-        first_name: currentUser.user_metadata?.first_name || currentUser.email?.split("@")[0] || "User",
-        middle_name: null,
-        last_name: currentUser.user_metadata?.last_name || "",
-        email: currentUser.email || "",
-        contact: currentUser.user_metadata?.contact || "",
-        address: currentUser.user_metadata?.address || "",
-        user_code: null,
-        created_at: currentUser.created_at,
-      };
-    }
-
+    // A failed lookup must not synthesize an active account from user metadata.
     return null;
   }, []);
 
-  // Bootstrap session on mount
-  useEffect(() => {
-    let mounted = true;
-
-    const init = async () => {
-      try {
-        const { data: { session } } = await supabase.auth.getSession();
-        if (!mounted) return;
-        if (session?.user) {
-          setUser(session.user);
-          const p = await fetchProfile(session.access_token, session.user);
-          if (mounted) setProfile(p);
-        }
-      } catch (err) {
-        console.error("Auth init error:", err);
-      } finally {
-        if (mounted) setLoading(false);
-      }
-    };
-
-    void init();
-
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(async (event, session) => {
-      if (!mounted) return;
-      if (event === "SIGNED_OUT" || !session) {
-        setUser(null);
-        setProfile(null);
-        setLoading(false);
-        return;
-      }
-      setUser(session.user);
-      const p = await fetchProfile(session.access_token, session.user);
-      if (mounted) {
-        setProfile(p);
-        setLoading(false);
-      }
-    });
-
-    return () => {
-      mounted = false;
-      subscription.unsubscribe();
-    };
-  }, [fetchProfile]);
+  // INITIAL_SESSION is emitted by Supabase after restoration. Using one event
+  // subscription avoids competing bootstrap/profile requests.
+  useEffect(() => subscribeToSession(
+    supabase.auth,
+    (session) => fetchProfile(session.access_token, session.user),
+    (session, account) => {
+      setUser(session?.user ?? null);
+      setProfile(account);
+      setSessionError(null);
+      setLoading(false);
+    },
+    (message) => {
+      setUser(null);
+      setProfile(null);
+      setSessionError(message);
+      setLoading(false);
+    },
+  ), [fetchProfile]);
 
   const login = useCallback(async (email: string, password: string): Promise<{ error?: string; mustChangePassword?: boolean }> => {
     setAuthError(null);
@@ -215,7 +178,7 @@ export function AuthProvider({ children }: { children: React.ReactNode }) {
   }, [fetchProfile]);
 
   return (
-    <AuthContext.Provider value={{ user, profile, loading, authError, login, logout, clearAuthError, refreshProfile }}>
+    <AuthContext.Provider value={{ user, profile, loading, authError, sessionError, login, logout, clearAuthError, refreshProfile }}>
       {children}
     </AuthContext.Provider>
   );

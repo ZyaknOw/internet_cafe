@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState, useCallback } from "react";
+import { useEffect, useState, useCallback, useRef } from "react";
 import { useRouter } from "next/navigation";
 import "@/components/admin-portal/admin-portal.css";
 import "@/components/staff-portal/staff-portal.css";
@@ -182,6 +182,9 @@ export default function StaffDashboard() {
   // ── Customer State (declared before billing so billing can read it) ───────
   const [customers, setCustomers] = useState<CustomerUser[]>([]);
   const [customerSearch, setCustomerSearch] = useState("");
+  const [customersLoading, setCustomersLoading] = useState(true);
+  const [customersError, setCustomersError] = useState<string | null>(null);
+  const customerRequestPending = useRef(false);
 
   // ── Billing State ─────────────────────────────────────────────────────────
   interface BillingRecord {
@@ -420,8 +423,62 @@ export default function StaffDashboard() {
     return () => clearInterval(interval);
   }, [profile]);
 
+  // Customer loading must not wait for overview or station requests.
+  const fetchCustomers = useCallback(async () => {
+    if (customerRequestPending.current) return;
+    customerRequestPending.current = true;
+    setCustomersLoading(true);
+    setCustomersError(null);
+    let timeout: ReturnType<typeof setTimeout> | undefined;
+    try {
+      const { data: { session } } = await Promise.race([
+        supabase.auth.getSession(),
+        new Promise<never>((_, reject) => {
+          timeout = setTimeout(() => reject(new Error("Session lookup timed out. Please retry or sign in again.")), 10_000);
+        }),
+      ]);
+      clearTimeout(timeout);
+      if (!session) throw new Error("Your session has expired. Please sign in again.");
+      const response = await fetch(API_URL + "/api/customers", {
+        headers: { Authorization: "Bearer " + session.access_token },
+        signal: AbortSignal.timeout(10_000),
+      });
+      if (!response.ok) {
+        if (response.status === 401) throw new Error("Your session has expired. Please sign in again.");
+        if (response.status === 403) throw new Error("An active staff or admin account is required to view customers.");
+        throw new Error("Could not load customers from the server. Please try again.");
+      }
+      const cData = await response.json() as { customers?: (Partial<AccountProfile> & { name?: string; approved?: boolean })[] };
+      if (!Array.isArray(cData.customers)) throw new Error("The server returned an invalid customer list. Please try again.");
+        const mapped = (cData.customers || []).filter((c): c is typeof c & { id: string } => Boolean(c.id)).map((c) => ({
+          id: c.id,
+          first_name: c.first_name || c.name || "Customer",
+          last_name: c.last_name || "",
+          email: c.email || "",
+          contact: c.contact || "",
+          user_code: c.user_code ?? undefined,
+          status: c.status || (c.approved ? "active" : "pending"),
+          balance: Number(c.balance || 0),
+        }));
+      setCustomers(mapped);
+    } catch (error) {
+      setCustomersError(error instanceof Error && error.name !== "TimeoutError" && error.name !== "TypeError"
+        ? error.message : "Could not connect to the customer directory. Check the backend connection and retry.");
+    } finally {
+      clearTimeout(timeout);
+      customerRequestPending.current = false;
+      setCustomersLoading(false);
+    }
+  }, []);
+
+  useEffect(() => {
+    const timer = setTimeout(() => { void fetchCustomers(); }, 0);
+    return () => clearTimeout(timer);
+  }, [fetchCustomers, profile?.id]);
+
   // Fetch staff data from backend
   const fetchOverview = useCallback(async () => {
+    void fetchCustomers();
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
@@ -480,26 +537,10 @@ export default function StaffDashboard() {
         );
       }
 
-      // Fetch customers
-      const custRes = await fetch(`${API_URL}/api/customers`, { headers });
-      if (custRes.ok) {
-        const cData = await custRes.json() as { customers?: (Partial<AccountProfile> & { name?: string; approved?: boolean })[] };
-        const mapped = (cData.customers || []).filter((c): c is typeof c & { id: string } => Boolean(c.id)).map((c) => ({
-          id: c.id,
-          first_name: c.first_name || c.name || "Customer",
-          last_name: c.last_name || "",
-          email: c.email || "",
-          contact: c.contact || "",
-          user_code: c.user_code ?? undefined,
-          status: c.status || (c.approved ? "active" : "pending"),
-          balance: Number(c.balance || 0),
-        }));
-        setCustomers(mapped);
-      }
     } catch {
       // silent
     }
-  }, []);
+  }, [fetchCustomers]);
 
   useEffect(() => {
     // The reads sit inside an async continuation so the resulting state updates
@@ -1332,7 +1373,7 @@ export default function StaffDashboard() {
                         </div>
                         <div className="cafe-product-name">{product.name}</div>
                         <div className="cafe-product-desc">{product.description}</div>
-                        <div className="cafe-product-price">₱{product.price}</div>
+                        <div className="cafe-product-price">&#8369;{product.price} / pack</div>
                         <button
                           className="cafe-add-btn"
                           onClick={() => addToCart(product)}
@@ -1514,7 +1555,7 @@ export default function StaffDashboard() {
                         ))}
                       {customers.length === 0 && (
                         <div style={{ textAlign: "center", padding: "20px 0", color: "#9bbdb5", fontSize: 12.5 }}>
-                          No registered customers found.
+                          {customersLoading ? "Loading registered customers..." : customersError || "No registered customers found."}
                         </div>
                       )}
                     </div>
@@ -1618,6 +1659,14 @@ export default function StaffDashboard() {
                 />
               </div>
             </div>
+
+            {customersLoading && <p role="status">Loading registered customers...</p>}
+            {customersError && (
+              <div role="alert">
+                <p>{customersError}</p>
+                <button type="button" className="nodecafe-btn-outline" onClick={() => void fetchCustomers()}>Retry Customer List</button>
+              </div>
+            )}
 
             <div className="nodecafe-table-card">
               <table className="nodecafe-table">
@@ -1752,7 +1801,14 @@ export default function StaffDashboard() {
                 <label style={{ display: "block", fontSize: 12, fontWeight: 700, color: "#475569", marginBottom: 6 }}>
                   Select Customer
                 </label>
-                {customers.length === 0 ? (
+                {customersLoading ? (
+                  <p role="status">Loading registered customers...</p>
+                ) : customersError ? (
+                  <div role="alert">
+                    <p>{customersError}</p>
+                    <button type="button" className="nodecafe-btn-outline" onClick={() => void fetchCustomers()}>Retry Customer List</button>
+                  </div>
+                ) : customers.length === 0 ? (
                   <div style={{ fontSize: 12, color: "#dc2626", background: "#fef2f2", padding: 10, borderRadius: 8 }}>
                     No registered customers found. Please register a customer first.
                   </div>
@@ -1803,7 +1859,7 @@ export default function StaffDashboard() {
                 </button>
                 <button
                   type="submit"
-                  disabled={assigningSession || !selectedCustomerId}
+                  disabled={assigningSession || customersLoading || Boolean(customersError) || !selectedCustomerId}
                   className="nodecafe-btn-primary"
                   style={{ width: "auto", padding: "9px 18px", fontSize: 13 }}
                 >

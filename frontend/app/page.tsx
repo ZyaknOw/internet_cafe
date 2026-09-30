@@ -9,7 +9,7 @@ import AdminDashboard from "./admin/dashboard/page";
 import { useAuth } from "@/lib/auth-context";
 
 export default function Home() {
-  const { profile, loading } = useAuth();
+  const { profile, loading, sessionError } = useAuth();
   const [showAuth, setShowAuth] = useState(false);
 
   // Show a simple loading state while Supabase restores the session
@@ -36,7 +36,7 @@ export default function Home() {
             animation: "spin 0.8s linear infinite",
           }}
         />
-        <p style={{ color: "var(--muted)", fontSize: 14 }}>Loading ETHER.CAFE…</p>
+        <p style={{ color: "var(--muted)", fontSize: 14 }}>Loading Internet Cafe...</p>
         <style>{`@keyframes spin { to { transform: rotate(360deg); } }`}</style>
       </div>
     );
@@ -52,6 +52,12 @@ export default function Home() {
   // Not logged in (or inactive account) — show the landing page
   return (
     <>
+      {sessionError && (
+        <div role="alert" className="auth-load-error">
+          <p>{sessionError}</p>
+          <button className="lp-view-all" onClick={() => window.location.reload()}>Try Again</button>
+        </div>
+      )}
       <EtherLanding onShowAuth={() => setShowAuth(true)} />
       {showAuth && <AuthModal onClose={() => setShowAuth(false)} />}
     </>

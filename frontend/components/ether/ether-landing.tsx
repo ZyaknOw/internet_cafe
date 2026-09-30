@@ -1,20 +1,15 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useRef } from "react";
+import { PC_SERVICE } from "../../../backend/src/pc-services";
+import Image from "next/image";
 import {
   ArrowRight,
-  Coffee,
-  Computer,
   Mail,
   MapPin,
   Menu,
   Monitor,
-  Printer,
-  RefreshCw,
-  Users,
-  Wifi,
   X,
-  VolumeX,
 } from "lucide-react";
 
 /* ─── Legal documents ─── */
@@ -118,10 +113,6 @@ const LEGAL_DOCS: Record<string, { title: string; sections: { heading: string; b
         body: "Prepaid session time is non-refundable once activated, as time-based sessions are consumed in real-time. However, if a system malfunction or technical issue on our part prevents you from using purchased time, we may issue a credit or extension to your account at our discretion."
       },
       {
-        heading: "Room Booking Cancellations",
-        body: "Private room and discussion room bookings may be cancelled with at least 24 hours notice for a full refund or credit. Cancellations made less than 24 hours before the scheduled booking may be subject to a 50% cancellation fee. No-shows are non-refundable."
-      },
-      {
         heading: "System Downtime Compensation",
         body: "In the event of extended system downtime affecting your active session, we will compensate affected users by extending their session time proportionally to the downtime duration or issuing a credit to their account for future use."
       },
@@ -171,38 +162,55 @@ function useCookieConsent() {
 }
 
 /* ─── Data constants ─── */
-const WORKSPACE_STATS = [
-  { label: "Stations", value: "24", icon: Computer },
-  { label: "Speed", value: "1 Gbps", icon: Wifi },
-  { label: "Private Rooms", value: "3+", icon: Users },
-];
-
-const BENEFITS = [
-  { icon: Wifi, title: "Fast & Reliable", desc: "Unlimited high-speed Wi-Fi for uninterrupted work." },
-  { icon: VolumeX, title: "Quiet Workspaces", desc: "A peaceful environment designed for deep focus." },
-  { icon: Coffee, title: "Coffee Included", desc: "Premium coffee and drinks to fuel your productivity." },
-];
-
-const SERVICES = [
-  { icon: Wifi, title: "High-Speed Wi-Fi", desc: "Symmetric gigabit fiber with no device limits per user." },
-  { icon: Coffee, title: "Premium Coffee", desc: "Ethically sourced beans, precision-brewed by our baristas." },
-  { icon: Printer, title: "Print & Scan", desc: "On-site printing and scanning for documents and photos." },
-  { icon: Monitor, title: "Comfortable Stations", desc: "Ergonomic chairs, wide monitors, ambient lighting." },
-  { icon: Users, title: "Private Rooms", desc: "Sound-treated rooms with whiteboards and conferencing displays." },
-];
-
-const FEATURED_RATES = [
-  { price: "50", period: "/hr", name: "Casual Stay", desc: "For quick tasks and browsing.", featured: false, badge: null },
-  { price: "180", period: "/day", name: "Essential Day", desc: "For focused all-day work.", featured: true, badge: "MOST POPULAR" },
-  { price: "1,500", period: "", name: "Discussion Room (1–5 pax)", desc: "Private workspace for teams.", featured: false, badge: null },
-];
-
 /* ─── Main Component ─── */
 export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
   const { showBanner, showPrefs, setShowPrefs, saveConsent } = useCookieConsent();
   const [activeDoc, setActiveDoc] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
+  const rateGridRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const grid = rateGridRef.current;
+    if (!grid || !("IntersectionObserver" in window)) return;
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
+    if (motion.matches) return;
+
+    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".lp-pc-card"));
+    const reveal = (card: HTMLElement) => {
+      card.dataset.reveal = "visible";
+      observer.unobserve(card);
+    };
+    const observer = new IntersectionObserver((entries) => {
+      for (const entry of entries) {
+        if (entry.isIntersecting) reveal(entry.target as HTMLElement);
+      }
+    }, { threshold: 0.12 });
+
+    // Each card enters once, including when the grid stacks on mobile.
+    cards.forEach((card) => {
+      card.dataset.reveal = "waiting";
+      observer.observe(card);
+    });
+    const onFocus = (event: FocusEvent) => {
+      const card = (event.target as HTMLElement).closest<HTMLElement>(".lp-pc-card");
+      if (card?.dataset.reveal === "waiting") reveal(card);
+    };
+    const onMotionChange = () => {
+      if (motion.matches) {
+        observer.disconnect();
+        cards.forEach((card) => { delete card.dataset.reveal; });
+      }
+    };
+    grid.addEventListener("focusin", onFocus);
+    motion.addEventListener("change", onMotionChange);
+    return () => {
+      observer.disconnect();
+      grid.removeEventListener("focusin", onFocus);
+      motion.removeEventListener("change", onMotionChange);
+      cards.forEach((card) => { delete card.dataset.reveal; });
+    };
+  }, []);
 
   useEffect(() => {
     const onScroll = () => setScrolled(window.scrollY > 40);
@@ -218,21 +226,21 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
   ];
 
   return (
-    <main className="lp-root">
+    <main id="home" className="lp-root">
       <a href="#main-content" className="skip-link">Skip to main content</a>
 
       {/* ─── NAVBAR ─── */}
       <header className={`lp-nav-wrap${scrolled ? " lp-nav-scrolled" : ""}`} role="banner">
         <nav className="lp-nav" aria-label="Main navigation">
-          <a href="#" className="lp-brand" aria-label="INTERNET CAFE home">
+          <a href="#home" className="lp-brand" aria-label="INTERNET CAFE home">
             <span className="lp-brand-mark" aria-hidden="true">I</span>
             <span className="lp-brand-text">INTERNET CAFE</span>
           </a>
           <div className="lp-nav-links">
-            <a href="#">Home</a>
+            <a href="#home">Home</a>
             <a href="#rates">Rates</a>
-            <a href="#rooms">Rooms</a>
             <a href="#services">Services</a>
+            <a href="#snacks">Snacks</a>
           </div>
           <div className="lp-nav-actions">
             <button className="lp-portal-btn" onClick={() => onShowAuth()} aria-label="Open portal login">
@@ -249,10 +257,10 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
         </nav>
         {mobileMenuOpen && (
           <div className="lp-mobile-menu">
-            <a href="#" onClick={() => setMobileMenuOpen(false)}>Home</a>
+            <a href="#home" onClick={() => setMobileMenuOpen(false)}>Home</a>
             <a href="#rates" onClick={() => setMobileMenuOpen(false)}>Rates</a>
-            <a href="#rooms" onClick={() => setMobileMenuOpen(false)}>Rooms</a>
             <a href="#services" onClick={() => setMobileMenuOpen(false)}>Services</a>
+            <a href="#snacks" onClick={() => setMobileMenuOpen(false)}>Snacks</a>
             <button className="lp-portal-btn lp-portal-btn--mobile" onClick={() => { setMobileMenuOpen(false); onShowAuth(); }}>
               PORTAL LOGIN
             </button>
@@ -265,194 +273,89 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
         {/* ─── HERO ─── */}
         <section
           className="lp-hero"
-          style={{ backgroundImage: "url('/images/dashboard/hero-cafe.jpg')" }}
+          style={{ backgroundImage: "url('/images/dashboard/gaming-setup.jpg')" }}
           aria-labelledby="hero-heading"
         >
           <div className="lp-hero-overlay" aria-hidden="true" />
           <div className="lp-hero-inner">
             <div className="lp-hero-content">
-              <p className="lp-hero-kicker">WORK • STUDY • CREATE • BELONG</p>
+              <p className="lp-hero-kicker">PC SESSIONS AT INTERNET CAFE</p>
               <h1 id="hero-heading" className="lp-hero-h1">
-                A sanctuary for<br />
-                <em className="lp-hero-em">deep work</em><br />
-                and coffee.
+                Your next<br />
+                <em className="lp-hero-em">PC session</em><br />
+                starts here.
               </h1>
               <p className="lp-hero-desc">
-                Premium connectivity, specialty roasts, and quiet corners designed for students and professionals who value focus.
+                Use a PC at Internet Cafe. Sign in to your account to view stations and manage your session.
               </p>
               <div className="lp-hero-ctas">
                 <button className="lp-btn-primary" onClick={() => onShowAuth()}>
-                  Book a Room <ArrowRight size={16} aria-hidden="true" />
+                  Sign In for PC Services <ArrowRight size={16} aria-hidden="true" />
                 </button>
-                <a href="#rates" className="lp-btn-outline">View Passes</a>
-              </div>
-            </div>
-            <div className="lp-hero-panel" aria-label="Workspace overview">
-              <div className="lp-panel-header">
-                <span className="lp-panel-dot" aria-hidden="true" />
-                <span className="lp-panel-dot" aria-hidden="true" />
-                <span className="lp-panel-dot" aria-hidden="true" />
-                <span className="lp-panel-title">WORKSPACE OVERVIEW</span>
-              </div>
-              <div className="lp-panel-stats">
-                {WORKSPACE_STATS.map((stat) => (
-                  <div key={stat.label} className="lp-stat-card">
-                    <div className="lp-stat-icon" aria-hidden="true">
-                      <stat.icon size={18} />
-                    </div>
-                    <p className="lp-stat-label">{stat.label}</p>
-                    <p className="lp-stat-value">{stat.value}</p>
-                  </div>
-                ))}
-              </div>
-              <p className="lp-panel-script" aria-hidden="true">Good Ideas<br />Better Coffee</p>
-            </div>
-          </div>
-        </section>
-
-        {/* ─── BENEFITS ─── */}
-        <section className="lp-benefits" aria-label="Key benefits">
-          <div className="lp-benefits-inner">
-            {BENEFITS.map((b, i) => (
-              <div key={b.title} className="lp-benefit-item">
-                <div className="lp-benefit-icon" aria-hidden="true">
-                  <b.icon size={20} />
-                </div>
-                <div className="lp-benefit-text">
-                  <h3 className="lp-benefit-title">{b.title}</h3>
-                  <p className="lp-benefit-desc">{b.desc}</p>
-                </div>
-                {i < BENEFITS.length - 1 && <div className="lp-benefit-sep" aria-hidden="true" />}
-              </div>
-            ))}
-          </div>
-        </section>
-
-        {/* ─── OUR SPACES ─── */}
-        <section id="rooms" className="lp-section" aria-labelledby="spaces-heading">
-          <div className="lp-section-inner">
-            <div className="lp-section-head">
-              <span className="lp-eyebrow" aria-hidden="true">OUR SPACES</span>
-              <h2 id="spaces-heading" className="lp-section-h2">Work the way you want.</h2>
-              <p className="lp-section-sub">
-                From individual nooks to private rooms, INTERNET CAFE gives you the space to focus, collaborate, and do more.
-              </p>
-            </div>
-            <div className="lp-spaces-grid">
-              <div
-                className="lp-space-card"
-                style={{ backgroundImage: "url('/images/dashboard/gaming-setup.jpg')" }}
-                role="region"
-                aria-label="Individual Workstations"
-              >
-                <div className="lp-space-overlay" aria-hidden="true" />
-                <div className="lp-space-content">
-                  <span className="lp-space-tag">INDIVIDUAL WORKSTATIONS</span>
-                  <p className="lp-space-desc">Quiet personal spaces built for focused work.</p>
-                  <button className="lp-space-link" onClick={() => onShowAuth()}>
-                    Explore Stations <ArrowRight size={15} aria-hidden="true" />
-                  </button>
-                </div>
-              </div>
-              <div
-                className="lp-space-card"
-                style={{ backgroundImage: "url('/images/dashboard/discussion-room.jpg')" }}
-                role="region"
-                aria-label="Discussion Rooms"
-              >
-                <div className="lp-space-overlay" aria-hidden="true" />
-                <div className="lp-space-content">
-                  <span className="lp-space-tag">DISCUSSION ROOMS</span>
-                  <p className="lp-space-desc">Private rooms for teams, meetings and study.</p>
-                  <button className="lp-space-link" onClick={() => onShowAuth()}>
-                    Explore Rooms <ArrowRight size={15} aria-hidden="true" />
-                  </button>
-                </div>
+                <a href="#rates" className="lp-btn-outline">PC Services & Rates</a>
               </div>
             </div>
           </div>
         </section>
 
-        {/* ─── FEATURED PRICING ─── */}
-        <section id="rates" className="lp-section lp-section--alt" aria-labelledby="pricing-heading">
-          <div className="lp-section-inner">
-            <div className="lp-pricing-head">
-              <div>
-                <span className="lp-eyebrow" aria-hidden="true">WORK AT YOUR PACE</span>
-                <h2 id="pricing-heading" className="lp-section-h2">Simple pricing for serious work.</h2>
-                <p className="lp-section-sub">Choose the plan that fits your workflow. All plans include unlimited high-speed Wi-Fi.</p>
-              </div>
-              <button className="lp-view-all" onClick={() => onShowAuth()}>
-                View All Rates <ArrowRight size={14} aria-hidden="true" />
-              </button>
-            </div>
-            <div className="lp-pricing-grid">
-              {FEATURED_RATES.map((rate) => (
-                <div key={rate.name} className={`lp-rate-card${rate.featured ? " lp-rate-card--featured" : ""}`}>
-                  {rate.badge && <span className="lp-rate-badge">{rate.badge}</span>}
-                  <div className="lp-rate-price">
-                    <span className="lp-rate-currency">₱</span>
-                    <span className="lp-rate-amount">{rate.price}</span>
-                    {rate.period && <span className="lp-rate-period">{rate.period}</span>}
-                  </div>
-                  <p className="lp-rate-name">{rate.name}</p>
-                  <p className="lp-rate-desc">{rate.desc}</p>
-                  <button className={`lp-rate-cta${rate.featured ? " lp-rate-cta--featured" : ""}`} onClick={() => onShowAuth()} aria-label={`Book ${rate.name}`}>
-                    <RefreshCw size={15} aria-hidden="true" />
-                  </button>
-                </div>
-              ))}
-            </div>
-          </div>
-        </section>
-
-        {/* ─── SERVICES ─── */}
+        {/* Public rate shares the configuration used by session billing. */}
         <section id="services" className="lp-section" aria-labelledby="services-heading">
           <div className="lp-section-inner">
-            <div className="lp-section-head lp-section-head--center">
-              <span className="lp-eyebrow" aria-hidden="true">MORE THAN A WORKSPACE</span>
-              <h2 id="services-heading" className="lp-section-h2">Everything within reach.</h2>
-              <p className="lp-section-sub">Essential services to make your stay comfortable and productive.</p>
+            <div className="lp-section-head">
+              <span className="lp-eyebrow">PC SERVICES</span>
+              <h2 id="services-heading" className="lp-section-h2">Your PC time, made simple.</h2>
+              <p className="lp-section-sub">
+                Explore our PC service and hourly rate, then sign in when you are ready.
+              </p>
             </div>
-            <div className="lp-services-list">
-              {SERVICES.map((svc, i) => (
-                <div key={svc.title} className="lp-service-item">
-                  <div className="lp-service-icon" aria-hidden="true">
-                    <svc.icon size={20} />
+            <div id="rates" className="lp-pc-grid" ref={rateGridRef}>
+              <article className="lp-pc-card lp-pc-card--rate">
+                <div className="lp-service-icon" aria-hidden="true"><Monitor size={24} /></div>
+                <span className="lp-eyebrow">PC USE</span>
+                <h3>{PC_SERVICE.name}</h3>
+                <p>{PC_SERVICE.description}</p>
+                <p>Sign in to view stations, check availability, and keep track of your PC session.</p>
+                <p className="lp-pc-price">
+                  <strong>{new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 }).format(PC_SERVICE.hourlyRate)}</strong>
+                  <span> / hour</span>
+                </p>
+                <button className="lp-btn-primary" onClick={onShowAuth}>
+                  Sign In for a PC Session <ArrowRight size={16} aria-hidden="true" />
+                </button>
+              </article>
+              <article id="snacks" className="lp-pc-card lp-pc-card--snacks" aria-labelledby="snacks-heading">
+                <div className="lp-snack-photos">
+                  <Image src="/images/snacks/crackers.png" alt="A packet of crackers" fill sizes="(max-width: 768px) 70vw, 30vw" className="lp-snack-photo-main" />
+                  <div className="lp-snack-photo-inset">
+                    <Image src="/images/snacks/stick-crackers.png" alt="A packet of stick crackers" fill sizes="(max-width: 768px) 30vw, 15vw" />
                   </div>
-                  <div className="lp-service-text">
-                    <h3 className="lp-service-title">{svc.title}</h3>
-                    <p className="lp-service-desc">{svc.desc}</p>
-                  </div>
-                  {i < SERVICES.length - 1 && <div className="lp-service-sep" aria-hidden="true" />}
                 </div>
-              ))}
+                <div className="lp-snack-copy">
+                  <span className="lp-eyebrow">A LITTLE EXTRA, IF YOU LIKE</span>
+                  <h3 id="snacks-heading">Make time for a bite.</h3>
+                  <p>Crackers or stick crackers for your PC break. Sold per pack, purchased separately, and always optional. Just here for the PC? That is welcome too.</p>
+                  <button className="lp-view-all" onClick={onShowAuth}>
+                    Sign In <ArrowRight size={16} aria-hidden="true" />
+                  </button>
+                </div>
+              </article>
             </div>
           </div>
         </section>
 
-        {/* ─── FINAL CTA ─── */}
+        {/* Final call to action */}
         <section className="lp-cta" aria-labelledby="cta-heading">
           <div className="lp-cta-inner">
             <div className="lp-cta-text">
-              <span className="lp-cta-kicker" aria-hidden="true">YOUR NEXT PRODUCTIVE DAY</span>
-              <h2 id="cta-heading" className="lp-cta-h2">Your desk is ready.</h2>
-              <p className="lp-cta-desc">Focus, connect, and get things done at INTERNET CAFE.</p>
+              <span className="lp-cta-kicker" aria-hidden="true">YOUR NEXT PC SESSION</span>
+              <h2 id="cta-heading" className="lp-cta-h2">Make time for your next session.</h2>
+              <p className="lp-cta-desc">Access your account and PC sessions at Internet Cafe.</p>
               <div className="lp-cta-actions">
                 <button className="lp-btn-cta-primary" onClick={() => onShowAuth()}>
-                  Book a Room <ArrowRight size={16} aria-hidden="true" />
+                  Sign In for PC Services <ArrowRight size={16} aria-hidden="true" />
                 </button>
                 <a href="#rates" className="lp-btn-cta-outline">View Rates</a>
               </div>
-            </div>
-            <div className="lp-cta-image-wrap" aria-hidden="true">
-              <img
-                src="/images/dashboard/coffee-latte-art.jpg"
-                alt="Specialty coffee at INTERNET CAFE"
-                className="lp-cta-image"
-              />
-              <div className="lp-cta-image-overlay" />
-              <p className="lp-cta-script">Good Work<br />Tastes Better</p>
             </div>
           </div>
         </section>
@@ -465,16 +368,16 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
                 <span className="lp-footer-brand-mark" aria-hidden="true">I</span>
                 <span>INTERNET CAFE</span>
               </div>
-              <p className="lp-footer-slogan">A sanctuary for deep work and coffee.</p>
-              <p className="lp-footer-tagline">Work • Study • Create • Belong</p>
+              <p className="lp-footer-slogan">PC services at Internet Cafe.</p>
+              <p className="lp-footer-tagline">PC stations & sessions</p>
             </div>
             <div className="lp-footer-col">
               <h4 className="lp-footer-col-title">Navigate</h4>
               <ul className="lp-footer-links">
-                <li><a href="#">Home</a></li>
+                <li><a href="#home">Home</a></li>
                 <li><a href="#rates">Rates</a></li>
-                <li><a href="#rooms">Rooms</a></li>
                 <li><a href="#services">Services</a></li>
+                <li><a href="#snacks">Snacks</a></li>
                 <li>
                   <button className="lp-footer-portal-link" onClick={() => onShowAuth()}>
                     Portal Login
@@ -510,7 +413,7 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
           </div>
           <div className="lp-footer-bottom">
             <span>© 2026 INTERNET CAFE. All rights reserved.</span>
-            <span className="lp-footer-tagline-sm">Work • Study • Create • Belong</span>
+            <span className="lp-footer-tagline-sm">PC stations & sessions</span>
           </div>
         </footer>
       </div>

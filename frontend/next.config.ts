@@ -1,7 +1,9 @@
 import type { NextConfig } from "next";
+import path from "node:path";
 
 const nextConfig: NextConfig = {
-  /* config options here */
+  // Include the public PC configuration shared with backend session billing.
+  turbopack: { root: path.join(__dirname, "..") },
 };
 
 export default nextConfig;

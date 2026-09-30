@@ -853,11 +853,11 @@ export default function ClientDashboard() {
                     </div>
                     <div>
                       <div className="nodecafe-service-name">Snacks</div>
-                      <div className="nodecafe-service-spec">Seasoned Fries</div>
+                      <div className="nodecafe-service-spec">{SNACK_PRODUCTS.map((snack) => snack.name).join(" & ")}</div>
                     </div>
                   </div>
                   <div className="nodecafe-service-bottom">
-                    <div className="nodecafe-service-price">₱95</div>
+                    <div className="nodecafe-service-price">&#8369;{SNACK_PRODUCTS[0].price} / pack</div>
                     <div className="nodecafe-service-badge">Available</div>
                   </div>
                 </div>
@@ -1103,7 +1103,7 @@ export default function ClientDashboard() {
                         </div>
                         <div className="cafe-product-name">{product.name}</div>
                         <div className="cafe-product-desc">{product.description}</div>
-                        <div className="cafe-product-price">₱{product.price}</div>
+                        <div className="cafe-product-price">&#8369;{product.price} / pack</div>
                         <button
                           className="cafe-add-btn"
                           onClick={() => addToCart(product)}
