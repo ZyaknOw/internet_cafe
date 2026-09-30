@@ -6,7 +6,6 @@ import {
   Tv,
   Gamepad2,
   Users,
-  CalendarDays,
   Coffee,
   CheckCircle2,
   Clock3,
@@ -14,13 +13,10 @@ import {
   Search,
   ChevronRight,
   PlayCircle,
-  StopCircle,
   History,
   Coins,
   LayoutGrid,
   Laptop,
-  DoorOpen,
-  UserCheck,
 } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 
@@ -153,7 +149,6 @@ export function StaffActionModals({
 
   // Sub-tabs / views
   const [sessionSubTab, setSessionSubTab] = useState<"start" | "active" | "end" | "history">("start");
-  const [bookingSubTab, setBookingSubTab] = useState<"today" | "upcoming" | "availability" | "history">("today");
   const [orderFilter, setOrderFilter] = useState<"all" | "pending" | "preparing" | "ready" | "completed">("all");
 
   // Start Session Form State
@@ -169,47 +164,6 @@ export function StaffActionModals({
 
   // Search customer query
   const [searchQuery, setSearchQuery] = useState("");
-
-  // Simulated Room Bookings State (Staff front-desk operations)
-  // TODO: Connect to backend /api/bookings when discussion_rooms table is added to Supabase
-  const [bookings, setBookings] = useState([
-    {
-      id: "BK-101",
-      room: "Studio 1 (4 Pax)",
-      guest: "Alexander Wright",
-      time: "11:00 AM – 1:00 PM",
-      date: "Today",
-      pax: 3,
-      status: "Confirmed",
-    },
-    {
-      id: "BK-102",
-      room: "The Forum (8–12 Pax)",
-      guest: "Tech Nova Team",
-      time: "2:00 PM – 5:00 PM",
-      date: "Today",
-      pax: 8,
-      status: "Confirmed",
-    },
-    {
-      id: "BK-103",
-      room: "Studio 2 (4 Pax)",
-      guest: "Maria Santos",
-      time: "4:00 PM – 6:00 PM",
-      date: "Today",
-      pax: 2,
-      status: "Confirmed",
-    },
-    {
-      id: "BK-104",
-      room: "Studio 3 (4 Pax)",
-      guest: "DevSprint Team",
-      time: "Tomorrow 10:00 AM",
-      date: "Tomorrow",
-      pax: 4,
-      status: "Confirmed",
-    },
-  ]);
 
   // Snack / pre-order queue (staff front-desk operations). Rows stream in from
   // GET /api/staff/orders; CAFE_ORDER_SEED only shows while migration 008
@@ -432,18 +386,6 @@ export function StaffActionModals({
         type: "error",
       });
     }
-  };
-
-  // Handle Room check-in
-  const handleCheckInGuest = (bookingId: string) => {
-    setBookings((prev) =>
-      prev.map((b) => (b.id === bookingId ? { ...b, status: "Checked-In" } : b))
-    );
-    setFeedbackMessage({
-      text: `Guest checked in for booking ${bookingId}. Discussion room marked Occupied.`,
-      type: "success",
-    });
-    onDataChanged?.();
   };
 
   const ModalShell = ({
@@ -738,24 +680,9 @@ export function StaffActionModals({
                       </div>
                     </div>
 
-                    <button
-                      onClick={() => handleEndSession(session.station_key)}
-                      style={{
-                        padding: "6px 12px",
-                        borderRadius: 8,
-                        background: "#dc2626",
-                        color: "#fff",
-                        fontSize: 12,
-                        fontWeight: 600,
-                        border: "none",
-                        cursor: "pointer",
-                        display: "flex",
-                        alignItems: "center",
-                        gap: 6,
-                      }}
-                    >
-                      <StopCircle size={14} /> End Session
-                    </button>
+                    <span style={{ fontSize: 12, color: "#6e7b71", fontWeight: 600 }}>
+                      Process payment from Billing
+                    </span>
                   </div>
                 ))
               )}
@@ -1043,151 +970,6 @@ export function StaffActionModals({
     );
   }
 
-  // 3. ROOM BOOKING MANAGEMENT MODAL
-  if (
-    modalId === "room-booking-management" ||
-    modalId === "today-bookings" ||
-    modalId === "upcoming-bookings" ||
-    modalId === "room-checkin" ||
-    modalId === "room-availability" ||
-    modalId === "booking-history"
-  ) {
-    return (
-      <ModalShell
-        title="Discussion Room Management"
-        subtitle="Manage reservation schedules, guest check-ins, and studio availability"
-        icon={CalendarDays}
-      >
-        <div style={{ display: "flex", gap: 6, marginBottom: 16, borderBottom: "1px solid #efeae0", paddingBottom: 8 }}>
-          <button
-            onClick={() => setBookingSubTab("today")}
-            style={{
-              padding: "6px 14px",
-              borderRadius: 8,
-              fontSize: 12.5,
-              fontWeight: 600,
-              cursor: "pointer",
-              border: "none",
-              background: bookingSubTab === "today" ? "#123725" : "transparent",
-              color: bookingSubTab === "today" ? "#fff" : "#556459",
-            }}
-          >
-            Today&apos;s Bookings
-          </button>
-          <button
-            onClick={() => setBookingSubTab("availability")}
-            style={{
-              padding: "6px 14px",
-              borderRadius: 8,
-              fontSize: 12.5,
-              fontWeight: 600,
-              cursor: "pointer",
-              border: "none",
-              background: bookingSubTab === "availability" ? "#123725" : "transparent",
-              color: bookingSubTab === "availability" ? "#fff" : "#556459",
-            }}
-          >
-            Room Availability
-          </button>
-        </div>
-
-        {bookingSubTab === "today" && (
-          <div style={{ display: "grid", gap: 10 }}>
-            {bookings.map((b) => (
-              <div
-                key={b.id}
-                style={{
-                  padding: "12px 14px",
-                  background: "#faf8f4",
-                  border: "1px solid #e5dfd2",
-                  borderRadius: 10,
-                  display: "flex",
-                  justifyContent: "space-between",
-                  alignItems: "center",
-                }}
-              >
-                <div>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    <b style={{ color: "#142219", fontSize: 13.5 }}>{b.room}</b>
-                    <span
-                      style={{
-                        fontSize: 11,
-                        padding: "2px 7px",
-                        borderRadius: 6,
-                        background: b.status === "Checked-In" ? "#dcfce7" : "#e0f2fe",
-                        color: b.status === "Checked-In" ? "#166534" : "#0369a1",
-                        fontWeight: 700,
-                      }}
-                    >
-                      {b.status}
-                    </span>
-                  </div>
-                  <div style={{ fontSize: 12, color: "#6a786e", marginTop: 3 }}>
-                    Guest: <b>{b.guest}</b> · {b.time} ({b.pax} Pax)
-                  </div>
-                </div>
-
-                {b.status !== "Checked-In" && (
-                  <button
-                    onClick={() => handleCheckInGuest(b.id)}
-                    style={{
-                      padding: "6px 14px",
-                      borderRadius: 8,
-                      background: "#123725",
-                      color: "#fff",
-                      fontSize: 12,
-                      fontWeight: 600,
-                      border: "none",
-                      cursor: "pointer",
-                      display: "flex",
-                      alignItems: "center",
-                      gap: 6,
-                    }}
-                  >
-                    <UserCheck size={14} /> Check In
-                  </button>
-                )}
-              </div>
-            ))}
-          </div>
-        )}
-
-        {bookingSubTab === "availability" && (
-          <div style={{ display: "grid", gap: 10 }}>
-            <div style={{ padding: "12px 14px", background: "#f4fbf6", border: "1px solid #cce8d5", borderRadius: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <b style={{ color: "#142219" }}>Studio 1 (4 Pax)</b>
-                <span style={{ fontSize: 11, color: "#15803d", fontWeight: 700 }}>AVAILABLE NOW</span>
-              </div>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: "#68766c" }}>4K Display, Fiber LAN, Conference mic</p>
-            </div>
-            <div style={{ padding: "12px 14px", background: "#f4fbf6", border: "1px solid #cce8d5", borderRadius: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <b style={{ color: "#142219" }}>Studio 2 (4 Pax)</b>
-                <span style={{ fontSize: 11, color: "#15803d", fontWeight: 700 }}>AVAILABLE NOW</span>
-              </div>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: "#68766c" }}>Next booking at 4:00 PM</p>
-            </div>
-            <div style={{ padding: "12px 14px", background: "#f4fbf6", border: "1px solid #cce8d5", borderRadius: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <b style={{ color: "#142219" }}>Studio 3 (4 Pax)</b>
-                <span style={{ fontSize: 11, color: "#15803d", fontWeight: 700 }}>AVAILABLE ALL DAY</span>
-              </div>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: "#68766c" }}>Open for walk-ins or reservations</p>
-            </div>
-            <div style={{ padding: "12px 14px", background: "#fef9ee", border: "1px solid #fae4b5", borderRadius: 10 }}>
-              <div style={{ display: "flex", justifyContent: "space-between" }}>
-                <b style={{ color: "#142219" }}>The Forum (8–12 Pax)</b>
-                <span style={{ fontSize: 11, color: "#b45309", fontWeight: 700 }}>RESERVED (2:00 PM)</span>
-              </div>
-              <p style={{ margin: "4px 0 0", fontSize: 12, color: "#68766c" }}>Boardroom setup reserved for Tech Nova Team</p>
-            </div>
-          </div>
-        )}
-      </ModalShell>
-    );
-  }
-
   // 4. CAFÉ / PRE-ORDER MANAGEMENT MODAL
   if (
     modalId === "cafe-management" ||
@@ -1386,12 +1168,12 @@ export function StaffActionModals({
     );
   }
 
-  // 5. PC & ROOM AVAILABILITY MODAL
-  if (modalId === "pc-room-availability" || modalId === "station-map") {
+  // 3. PC AVAILABILITY MODAL
+  if (modalId === "pc-availability" || modalId === "station-map") {
     return (
       <ModalShell
-        title="PC &amp; Room Operational Status"
-        subtitle="Live workstation and studio availability board"
+        title="PC Operational Status"
+        subtitle="Live workstation availability board"
         icon={LayoutGrid}
       >
         <div style={{ marginBottom: 14 }}>
@@ -1441,31 +1223,6 @@ export function StaffActionModals({
                 </div>
               );
             })}
-          </div>
-        </div>
-
-        <div>
-          <span style={{ fontSize: 12.5, fontWeight: 700, color: "#142219", display: "block", marginBottom: 8 }}>
-            Discussion Rooms
-          </span>
-          <div style={{ display: "grid", gridTemplateColumns: "repeat(4, 1fr)", gap: 8 }}>
-            {["Studio 1", "Studio 2", "Studio 3", "The Forum"].map((rm) => (
-              <div
-                key={rm}
-                style={{
-                  padding: "10px",
-                  borderRadius: 8,
-                  background: rm === "The Forum" ? "#fef3c7" : "#eaf4ed",
-                  border: `1px solid ${rm === "The Forum" ? "#f59e0b" : "#86efac"}`,
-                  textAlign: "center",
-                }}
-              >
-                <b style={{ fontSize: 12, color: "#142219" }}>{rm}</b>
-                <div style={{ fontSize: 10, color: rm === "The Forum" ? "#92400e" : "#166534", fontWeight: 700, marginTop: 3 }}>
-                  {rm === "The Forum" ? "RESERVED" : "AVAILABLE"}
-                </div>
-              </div>
-            ))}
           </div>
         </div>
       </ModalShell>

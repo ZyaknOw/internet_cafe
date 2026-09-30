@@ -1,23 +1,19 @@
 "use client";
 
-import { Gamepad2, Wallet, Clock3, CalendarDays } from "lucide-react";
+import { Gamepad2, Wallet, Clock3 } from "lucide-react";
 
 interface SummaryMetricsProps {
   activeSession?: string;
   balance?: string;
   rate?: string;
-  bookingsCount?: number;
   onTopUp?: () => void;
-  onViewBookings?: () => void;
 }
 
 export function SummaryMetrics({
   activeSession = "—",
   balance = "₱ 0.00",
   rate = "₱ 50/hr",
-  bookingsCount = 0,
   onTopUp,
-  onViewBookings,
 }: SummaryMetricsProps) {
   return (
     <section className="client-metrics-grid" aria-label="Portal Statistics Summary">
@@ -63,27 +59,6 @@ export function SummaryMetrics({
           <span className="client-metric-label">CURRENT RATE</span>
           <span className="client-metric-value">{rate}</span>
           <span className="client-metric-sub">Casual Stay</span>
-        </div>
-      </div>
-
-      {/* 4. Bookings */}
-      <div
-        className="client-metric-card bookings"
-        onClick={onViewBookings}
-        style={{ cursor: onViewBookings ? "pointer" : "default" }}
-        role={onViewBookings ? "button" : undefined}
-        tabIndex={onViewBookings ? 0 : undefined}
-        onKeyDown={(e) => {
-          if (onViewBookings && (e.key === "Enter" || e.key === " ")) onViewBookings();
-        }}
-      >
-        <div className="client-metric-icon-box" aria-hidden="true">
-          <CalendarDays size={22} />
-        </div>
-        <div className="client-metric-info">
-          <span className="client-metric-label">BOOKINGS</span>
-          <span className="client-metric-value">{bookingsCount}</span>
-          <span className="client-metric-sub">Upcoming reservations</span>
         </div>
       </div>
     </section>

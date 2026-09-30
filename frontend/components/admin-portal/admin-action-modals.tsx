@@ -10,7 +10,6 @@ import {
   KeyRound,
   ShieldCheck,
   Gamepad2,
-  CalendarDays,
   Coffee,
   Receipt,
   Lock,
@@ -134,10 +133,6 @@ export function AdminActionModals({
         <div style={{ background: "#ffffff", border: "1px solid #e2ddd3", borderRadius: 10, padding: "14px 16px" }}>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f0ece2" }}>
             <span>Hourly PC Gaming &amp; Co-work</span>
-            <b>₱ 0.00</b>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "6px 0", borderBottom: "1px solid #f0ece2" }}>
-            <span>Discussion Room Passes</span>
             <b>₱ 0.00</b>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", fontSize: 13, padding: "6px 0" }}>
@@ -425,39 +420,12 @@ export function AdminActionModals({
     );
   }
 
-  // 6. BOOKING MANAGEMENT
-  if (modalId === "upcoming-bookings" || modalId === "approve-cancel-booking" || modalId === "room-availability" || modalId === "booking-history") {
-    return (
-      <ModalShell title="Discussion Room Bookings" icon={CalendarDays}>
-        <p style={{ fontSize: 13, color: "#5a685e", margin: "0 0 14px" }}>
-          Manage private conference spaces: Studio 1, Studio 2, Studio 3, and The Forum.
-        </p>
-        <div style={{ display: "grid", gap: 10 }}>
-          <div style={{ padding: "12px 14px", background: "#faf8f4", border: "1px solid #e5dfd2", borderRadius: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <b style={{ color: "#142219", fontSize: 13.5 }}>Studio 1 (4 Pax)</b>
-              <span style={{ fontSize: 11, color: "#15803d", fontWeight: 700 }}>AVAILABLE</span>
-            </div>
-            <div style={{ fontSize: 12, color: "#6a786e", marginTop: 2 }}>Equipped with 4K display, high-speed fiber, conference mic</div>
-          </div>
-          <div style={{ padding: "12px 14px", background: "#faf8f4", border: "1px solid #e5dfd2", borderRadius: 10 }}>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
-              <b style={{ color: "#142219", fontSize: 13.5 }}>The Forum (8–12 Pax)</b>
-              <span style={{ fontSize: 11, color: "#15803d", fontWeight: 700 }}>AVAILABLE</span>
-            </div>
-            <div style={{ fontSize: 12, color: "#6a786e", marginTop: 2 }}>Executive boardroom setup with surround sound &amp; projector</div>
-          </div>
-        </div>
-      </ModalShell>
-    );
-  }
-
-  // 7. PRICING & RATE CONTROL
-  if (modalId === "hourly-rates" || modalId === "day-passes" || modalId === "room-rates" || modalId === "extra-member-fee") {
+  // 6. PRICING & RATE CONTROL
+  if (modalId === "hourly-rates" || modalId === "day-passes" || modalId === "extra-member-fee") {
     return (
       <ModalShell title="Pricing &amp; Rate Control" icon={DollarSign}>
         <p style={{ fontSize: 13, color: "#5a685e", margin: "0 0 14px" }}>
-          Active billing rates for PC usage, day packages, and private discussion rooms.
+          Active billing rates for PC usage and day packages.
         </p>
         <div style={{ display: "grid", gap: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "#faf8f4", borderRadius: 8 }}>
@@ -471,10 +439,6 @@ export function AdminActionModals({
           <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "#faf8f4", borderRadius: 8 }}>
             <span>Stay-All-Day Pass (12 Hours)</span>
             <b style={{ color: "#123725" }}>₱ 249.00</b>
-          </div>
-          <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "#faf8f4", borderRadius: 8 }}>
-            <span>Private Studio (Up to 4 Pax)</span>
-            <b style={{ color: "#123725" }}>₱ 350.00 / hr</b>
           </div>
         </div>
       </ModalShell>

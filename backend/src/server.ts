@@ -37,7 +37,19 @@ const profileUpdate = z.object({
 });
 const stationSessionRequest = z.object({ stationKey: z.string().min(1), stationName: z.string().min(1), hourlyRate: z.number().nonnegative(), customerProfileId: z.string().uuid() });
 const clientSessionSignIn = z.object({ userCode: z.string().min(3), contact: z.string().min(1) });
-const endStationSessionRequest = z.object({ paymentMethod: z.enum(["cash", "wallet"]).optional() });
+const checkoutStationSessionRequest = z.object({});
+const endStationSessionRequest = z.object({ paymentMethod: z.enum(["cash", "wallet"]), cashReceived: z.number().nonnegative().optional() });
+
+function logSupabaseError(operation: string, error: unknown) {
+  const details = error && typeof error === "object" ? error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown } : {};
+  console.error(`[station checkout] ${operation} failed`, {
+    message: details.message,
+    details: details.details,
+    hint: details.hint,
+    code: details.code,
+    error,
+  });
+}
 
 async function findDuplicateAccount({
   email,
@@ -257,7 +269,7 @@ app.post("/api/station-sessions", requireActiveUser, requireRole("admin", "staff
 });
 
 app.get("/api/station-sessions/open", requireActiveUser, requireRole("admin", "staff"), async (_req, res) => {
-  const { data, error } = await supabaseAdmin.from("station_sessions").select("*").in("status", ["pending_client", "active"]);
+  const { data, error } = await supabaseAdmin.from("station_sessions").select("*").in("status", ["pending_client", "active", "awaiting_payment"]);
   if (error) return res.status(500).json({ error: error.message });
   res.json({ sessions: data });
 });
@@ -299,7 +311,7 @@ app.get("/api/stations", requireActiveUser, requireRole("admin", "staff"), async
     const { data: openSessions } = await supabaseAdmin
       .from("station_sessions")
       .select("*")
-      .in("status", ["pending_client", "active"]);
+      .in("status", ["pending_client", "active", "awaiting_payment"]);
 
     const openMap = new Map();
     (openSessions || []).forEach((s) => {
@@ -348,7 +360,7 @@ app.get("/api/client/stations", requireActiveUser, async (req: AuthenticatedRequ
     const { data: openSessions } = await supabaseAdmin
       .from("station_sessions")
       .select("*")
-      .in("status", ["pending_client", "active"]);
+      .in("status", ["pending_client", "active", "awaiting_payment"]);
 
     const openMap = new Map();
     (openSessions || []).forEach((s) => {
@@ -383,10 +395,53 @@ app.get("/api/client/stations", requireActiveUser, async (req: AuthenticatedRequ
   }
 });
 
+app.post("/api/station-sessions/:stationKey/checkout", requireActiveUser, requireRole("admin", "staff"), async (req, res) => {
+  const input = checkoutStationSessionRequest.safeParse(req.body);
+  if (!input.success) return res.status(400).json({ error: "Invalid checkout request." });
+  const rawKey = String(req.params.stationKey || "").trim();
+  if (!rawKey) return res.status(400).json({ error: "Station or session key is required." });
+  const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawKey);
+  let query = supabaseAdmin.from("station_sessions").select("*").in("status", ["active", "awaiting_payment"]);
+  query = isUuid ? query.eq("id", rawKey) : query.or(`station_key.ilike.${rawKey},station_name.ilike.%${rawKey}%`);
+  const { data: session, error: sessionError } = await query.order("requested_at", { ascending: false }).limit(1).maybeSingle();
+  if (sessionError) {
+    logSupabaseError("loading station session", sessionError);
+    return res.status(500).json({ error: "Could not load the station session for checkout." });
+  }
+  if (!session) return res.status(404).json({ error: "No active station session was found." });
+  if (session.status === "awaiting_payment") return res.json({ session });
+
+  const checkoutAt = new Date();
+  const startedAt = session.started_at ? new Date(session.started_at).getTime() : checkoutAt.getTime();
+  const durationSeconds = Math.max(0, Math.floor((checkoutAt.getTime() - startedAt) / 1000));
+  const total = Number(((durationSeconds / 3600) * Number(session.hourly_rate || STATION_HOURLY_RATE)).toFixed(2));
+  const checkoutPayload = {
+    status: "awaiting_payment",
+    checkout_at: checkoutAt.toISOString(),
+    checkout_duration_seconds: durationSeconds,
+    checkout_total: total,
+  };
+  const { data: locked, error } = await supabaseAdmin
+    .from("station_sessions")
+    .update(checkoutPayload)
+    .eq("id", session.id)
+    .eq("status", "active")
+    .select("*")
+    .maybeSingle();
+  if (error) {
+    logSupabaseError("saving frozen station checkout", error);
+    console.error("[station checkout] payload", { sessionId: session.id, checkoutPayload });
+    return res.status(500).json({ error: "Could not save the station checkout. Check the backend console for the database error." });
+  }
+  if (!locked) return res.status(409).json({ error: "This session is already in checkout or has been completed." });
+  res.json({ session: locked });
+});
+
 app.post("/api/station-sessions/:stationKey/end", requireActiveUser, requireRole("admin", "staff"), async (req, res) => {
   const input = endStationSessionRequest.safeParse(req.body);
   if (!input.success) return res.status(400).json({ error: "Choose cash or customer wallet for this payment." });
-  const paymentMethod = input.data.paymentMethod ?? "wallet";
+  const paymentMethod = input.data.paymentMethod;
+  const cashReceived = input.data.cashReceived;
   const rawParam = Array.isArray(req.params.stationKey) ? req.params.stationKey[0] : req.params.stationKey;
   const param = (rawParam || "").trim();
   if (!param) return res.status(400).json({ error: "Station key is required." });
@@ -400,7 +455,7 @@ app.post("/api/station-sessions/:stationKey/end", requireActiveUser, requireRole
   let query = supabaseAdmin
     .from("station_sessions")
     .select("*")
-    .in("status", ["active", "pending_client"]);
+    .in("status", ["active", "awaiting_payment", "pending_client"]);
 
   const isUuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i.test(rawKey);
   if (isUuid) {
@@ -427,9 +482,13 @@ app.post("/api/station-sessions/:stationKey/end", requireActiveUser, requireRole
 
   const session = sessions?.[0];
 
-  if (sessionError || !session) return res.status(404).json({ error: "No active or pending session was found for this station." });
+  if (sessionError) {
+    logSupabaseError("loading station session for payment", sessionError);
+    return res.status(500).json({ error: "Could not load the station session for payment." });
+  }
+  if (!session) return res.status(404).json({ error: "No active or pending session was found for this station." });
 
-  const endedAt = new Date();
+  const endedAt = session.checkout_at ? new Date(session.checkout_at) : new Date();
 
   // If pending_client, cancel without charge
   if (session.status === "pending_client") {
@@ -456,8 +515,10 @@ app.post("/api/station-sessions/:stationKey/end", requireActiveUser, requireRole
 
   // Active session billing calculation
   const start = session.started_at ? new Date(session.started_at).getTime() : endedAt.getTime();
-  const diffHours = Math.max(0, (endedAt.getTime() - start) / 3_600_000);
-  const total = Number((diffHours * STATION_HOURLY_RATE).toFixed(2));
+  const durationSeconds = session.checkout_duration_seconds ?? Math.max(0, Math.floor((endedAt.getTime() - start) / 1000));
+  const total = session.checkout_total !== null && session.checkout_total !== undefined
+    ? Number(session.checkout_total)
+    : Number(((durationSeconds / 3600) * Number(session.hourly_rate || STATION_HOURLY_RATE)).toFixed(2));
 
   const { data: customerProfile, error: customerError } = session.customer_profile_id
     ? await supabaseAdmin
@@ -466,19 +527,31 @@ app.post("/api/station-sessions/:stationKey/end", requireActiveUser, requireRole
       .eq("id", session.customer_profile_id)
       .maybeSingle()
     : { data: null, error: null };
-  if (customerError) return res.status(500).json({ error: customerError.message });
+  if (customerError) {
+    logSupabaseError("loading customer wallet for station payment", customerError);
+    return res.status(500).json({ error: "Could not load the customer wallet for payment." });
+  }
   if (paymentMethod === "wallet" && customerProfile && Number(customerProfile.balance || 0) < total) {
     return res.status(400).json({ error: "Insufficient customer wallet balance. Collect cash instead." });
   }
+  if (paymentMethod === "cash" && (cashReceived === undefined || cashReceived < total)) {
+    return res.status(400).json({ error: `Cash received must be at least ₱${total.toFixed(2)}.` });
+  }
+  const changeDue = paymentMethod === "cash" ? Number((cashReceived! - total).toFixed(2)) : 0;
 
   const { data, error } = await supabaseAdmin
     .from("station_sessions")
-    .update({ status: "ended", ended_at: endedAt.toISOString(), total })
+    .update({ status: "ended", ended_at: endedAt.toISOString(), total, payment_method: paymentMethod, cash_received: paymentMethod === "cash" ? cashReceived : null, change_due: paymentMethod === "cash" ? changeDue : null })
     .eq("id", session.id)
+    .in("status", ["active", "awaiting_payment"])
     .select()
-    .single();
+    .maybeSingle();
 
-  if (error) return res.status(500).json({ error: error.message });
+  if (error) {
+    logSupabaseError("finalizing station payment", error);
+    return res.status(500).json({ error: "Could not finalize the station payment. Check the backend console for the database error." });
+  }
+  if (!data) return res.status(409).json({ error: "This station payment was already completed or is being processed." });
 
   // Sync public.stations status
   try {
@@ -509,7 +582,7 @@ app.post("/api/station-sessions/:stationKey/end", requireActiveUser, requireRole
         .eq("id", customerProfile.id);
   }
 
-  res.json({ session: data, paymentMethod });
+  res.json({ session: data, paymentMethod, cashReceived: paymentMethod === "cash" ? cashReceived : null, changeDue });
 });
 
 // Top-up customer prepaid balance
@@ -725,7 +798,7 @@ app.get(["/api/transactions", "/api/admin/transactions"], requireActiveUser, req
     supabaseAdmin.from("orders").select("*").order("placed_at", { ascending: false }).limit(100),
     supabaseAdmin
       .from("station_sessions")
-      .select("id, station_name, customer_name, status, started_at, ended_at, total, hourly_rate")
+      .select("id, station_name, customer_name, status, started_at, ended_at, checkout_at, checkout_duration_seconds, checkout_total, total, hourly_rate, payment_method, cash_received, change_due")
       .eq("status", "ended")
       .order("ended_at", { ascending: false })
       .limit(100),
@@ -759,9 +832,9 @@ app.get(["/api/transactions", "/api/admin/transactions"], requireActiveUser, req
         source: "session",
         customer: session.customer_name || "Customer",
         service: `Station Session (${session.station_name || "PC"}${hoursLabel})`,
-        amount: Number(session.total) || 0,
-        method: "Member Balance",
-        timestamp: session.ended_at,
+        amount: Number(session.total ?? session.checkout_total) || 0,
+        method: session.payment_method === "cash" ? "Cash" : session.payment_method === "wallet" ? "Wallet" : "Member Balance",
+        timestamp: session.ended_at || session.checkout_at,
         status: "paid",
       };
     }),
@@ -834,7 +907,7 @@ function generateTemporaryPassword(): string {
   const numbers = "23456789";
   const specials = "!@#$%&*";
   const pick = (set: string) => set.charAt(Math.floor(Math.random() * set.length));
-  
+
   // Guarantee a mix of upper, lower, number, special for security
   let res = "Eth-" + pick(lettersUpper) + pick(lettersLower) + pick(numbers) + pick(specials);
   const all = lettersUpper + lettersLower + numbers + specials;
@@ -997,7 +1070,7 @@ app.get("/api/admin/overview", requireActiveUser, requireRole("admin"), async (_
   try {
     const { count: usersCount } = await supabaseAdmin.from("account_profiles").select("id", { count: "exact", head: true });
     const { count: pendingCount } = await supabaseAdmin.from("account_profiles").select("id", { count: "exact", head: true }).eq("status", "pending");
-    const { count: activeSessionsCount } = await supabaseAdmin.from("station_sessions").select("id", { count: "exact", head: true }).in("status", ["active", "pending_client"]);
+    const { count: activeSessionsCount } = await supabaseAdmin.from("station_sessions").select("id", { count: "exact", head: true }).in("status", ["active", "awaiting_payment", "pending_client"]);
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1008,10 +1081,8 @@ app.get("/api/admin/overview", requireActiveUser, requireRole("admin"), async (_
     res.json({
       dailyRevenue,
       activeSessions: activeSessionsCount ?? 0,
-      roomOccupancy: 0,
       totalUsers: usersCount ?? 0,
       pcsOnline: { active: activeSessionsCount ?? 0, total: MAX_STATIONS },
-      availableRooms: { inUse: 0, total: 4 },
       pendingOrders: orderCounts.pending,
       pendingRequests: pendingCount ?? 0,
     });
@@ -1026,16 +1097,13 @@ app.get("/api/staff/overview", requireActiveUser, requireRole("admin", "staff"),
     const { count: activeSessionsCount } = await supabaseAdmin
       .from("station_sessions")
       .select("id", { count: "exact", head: true })
-      .in("status", ["active", "pending_client"]);
+      .in("status", ["active", "awaiting_payment", "pending_client"]);
 
-    // Snack tickets come from public.orders (migration 008). The discussion_rooms
-    // table is still to be linked here once that migration lands.
+    // Snack tickets come from public.orders (migration 008).
     const orderCounts = await readOrderCounts();
     res.json({
       activeSessions: activeSessionsCount ?? 0,
       pcsOnline: { active: activeSessionsCount ?? 0, total: MAX_STATIONS },
-      availableRooms: { inUse: 0, total: 4 },
-      todayBookings: 2,
       pendingOrders: orderCounts.pending,
       orderCounts,
     });

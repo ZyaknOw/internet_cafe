@@ -17,9 +17,7 @@ import {
   Coffee,
   Receipt,
   LayoutGrid,
-  CalendarDays,
   Laptop,
-  DoorOpen,
   ShoppingBag,
   Plus,
   ArrowRight,
@@ -39,8 +37,6 @@ import {
 interface StaffOverviewData {
   activeSessions: number;
   pcsOnline: { active: number; total: number };
-  availableRooms: { inUse: number; total: number };
-  todayBookings: number;
   pendingOrders: number;
   orderCounts: { pending: number; preparing: number; ready: number; completed: number };
 }
@@ -53,8 +49,14 @@ interface StationItem {
   specs: string;
   status: "available" | "in-use" | "waiting";
   customerName?: string;
+  customerProfileId?: string;
+  sessionId?: string;
   startedAt?: string;
   sessionStartedAt?: string;
+  checkoutAt?: string;
+  checkoutDurationSeconds?: number;
+  checkoutTotal?: number;
+  awaitingPayment?: boolean;
 }
 
 interface OrderItem {
@@ -96,10 +98,16 @@ const errorMessage = (err: unknown, fallback: string): string =>
   err instanceof Error && err.message ? err.message : fallback;
 
 interface OpenSession {
+  id: string;
   station_key: string;
   station_name: string;
   customer_name: string;
+  customer_profile_id: string;
+  hourly_rate: number;
   started_at: string | null;
+  checkout_at?: string | null;
+  checkout_duration_seconds?: number | null;
+  checkout_total?: number | null;
   status: string;
 }
 
@@ -128,7 +136,7 @@ export default function StaffDashboard() {
   const router = useRouter();
   const { profile, logout } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<"overview" | "stations" | "transactions" | "receipts" | "orders" | "billing" | "customers" | "bookings">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "stations" | "transactions" | "orders" | "billing" | "customers">("overview");
   const [liveNow, setLiveNow] = useState(() => Date.now());
 
   useEffect(() => {
@@ -200,6 +208,10 @@ export default function StaffDashboard() {
 
   const [billingOrder, setBillingOrder] = useState<CartItem[]>([]);
   const [billingCustomerId, setBillingCustomerId] = useState("");
+  const [stationBilling, setStationBilling] = useState<StationItem | null>(null);
+  const [stationPaymentMethod, setStationPaymentMethod] = useState<"cash" | "wallet">("cash");
+  const [cashReceived, setCashReceived] = useState("");
+  const [paymentSuccess, setPaymentSuccess] = useState<{ station: StationItem; amount: number; method: "cash" | "wallet"; cashReceived?: number; change?: number; reference?: string; paidAt: string } | null>(null);
   // Walk-in café payment is cash-only at the counter — no wallet/e-wallet.
   const [billingProcessing, setBillingProcessing] = useState(false);
   const [billingHistory, setBillingHistory] = useState<BillingRecord[]>([]);
@@ -363,8 +375,6 @@ export default function StaffDashboard() {
   const [overview, setOverview] = useState<StaffOverviewData>({
     activeSessions: 0,
     pcsOnline: { active: 0, total: 8 },
-    availableRooms: { inUse: 0, total: 4 },
-    todayBookings: 0,
     pendingOrders: 0,
     orderCounts: { pending: 0, preparing: 0, ready: 0, completed: 0 },
   });
@@ -518,18 +528,27 @@ export default function StaffDashboard() {
             if (open) {
               return {
                 ...st,
-                status: "in-use",
+                status: open.status === "awaiting_payment" ? "waiting" : "in-use",
                 customerName: open.customer_name || "Client",
+                customerProfileId: open.customer_profile_id,
+                sessionId: open.id,
+                rate: Number(open.hourly_rate) || st.rate,
+                checkoutAt: open.checkout_at || undefined,
+                checkoutDurationSeconds: open.checkout_duration_seconds ?? undefined,
+                checkoutTotal: open.checkout_total ?? undefined,
+                awaitingPayment: open.status === "awaiting_payment",
                 startedAt: open.started_at
                   ? new Date(open.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-                  : (open.status === "pending_client" ? "Waiting for client" : "Active"),
-                sessionStartedAt: open.started_at || undefined,
+                     : (open.status === "pending_client" ? "Waiting for client" : open.status === "awaiting_payment" ? "Awaiting payment" : "Active"),
+                  sessionStartedAt: open.started_at || undefined,
               };
             }
             return {
               ...st,
               status: "available",
               customerName: undefined,
+              customerProfileId: undefined,
+              sessionId: undefined,
               startedAt: undefined,
               sessionStartedAt: undefined,
             };
@@ -595,36 +614,106 @@ export default function StaffDashboard() {
     };
   }, [fetchOverview, fetchPendingClientOrders, fetchReceipts]);
 
-  // Handle End Session API call
-  const handleEndSession = async (st: StationItem, paymentMethod: "cash" | "wallet" = "wallet") => {
-    const paymentLabel = paymentMethod === "cash" ? "Cash" : "Customer Wallet";
-    if (!confirm(`Process ${paymentLabel} payment and end ${st.name} for ${st.customerName || "Active Client"}?`)) return;
+  const openStationBilling = (station: StationItem) => {
+    setStationBilling(station);
+    setStationPaymentMethod("cash");
+    setCashReceived("");
+    setFeedback(null);
+    setActiveTab("billing");
+  };
+
+  useEffect(() => {
+    if (activeTab === "billing" && !stationBilling) {
+      const awaiting = stations.find((station) => station.awaitingPayment);
+      if (awaiting) setStationBilling(awaiting);
+    }
+  }, [activeTab, stationBilling, stations]);
+
+  const beginStationCheckout = async (station: StationItem) => {
+    if (station.awaitingPayment) {
+      openStationBilling(station);
+      return;
+    }
+    setActionLoading(station.id);
+    setFeedback(null);
+    try {
+      const authResult = await supabase.auth.getSession();
+      const session = authResult.data.session;
+      const token = session?.access_token;
+      const res = await fetch(`${API_URL}/api/station-sessions/${encodeURIComponent(station.sessionId ?? station.name)}/checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(token ? { Authorization: `Bearer ${token}` } : {}) },
+        body: JSON.stringify({}),
+      });
+      const body = await res.json().catch(() => ({})) as { session?: OpenSession; error?: string };
+      if (!res.ok || !body.session) throw new Error(body.error || "Could not freeze this station session for Billing.");
+      const frozen: StationItem = {
+        ...station,
+        status: "waiting",
+        checkoutAt: body.session.checkout_at || undefined,
+        checkoutDurationSeconds: body.session.checkout_duration_seconds ?? undefined,
+        checkoutTotal: Number(body.session.checkout_total) || 0,
+        awaitingPayment: true,
+      };
+      setStations((prev) => prev.map((item) => item.id === station.id ? frozen : item));
+      openStationBilling(frozen);
+    } catch (err: unknown) {
+      setFeedback({ text: errorMessage(err, "Could not start checkout"), type: "error" });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
+  // Final station-session payment is submitted only from Billing.
+  const handleEndSession = async (st: StationItem, paymentMethod: "cash" | "wallet") => {
+    const total = stationPaymentTotal(st);
+    const received = Number(cashReceived);
+    if (paymentMethod === "cash" && (!Number.isFinite(received) || received < total)) {
+      setFeedback({ text: `Cash received must be at least ₱${total.toFixed(2)}.`, type: "error" });
+      return;
+    }
+    if (paymentMethod === "wallet" && !walletAllowedForStation(st)) {
+      setFeedback({ text: "Insufficient customer wallet balance. Collect cash instead.", type: "error" });
+      return;
+    }
     setActionLoading(st.id);
     setFeedback(null);
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      const res = await fetch(`${API_URL}/api/station-sessions/${encodeURIComponent(st.name)}/end`, {
+      const sessionKey = st.sessionId ?? st.name;
+      const res = await fetch(`${API_URL}/api/station-sessions/${encodeURIComponent(sessionKey)}/end`, {
         method: "POST",
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ paymentMethod }),
+        body: JSON.stringify({ paymentMethod, ...(paymentMethod === "cash" ? { cashReceived: received } : {}) }),
       });
 
       const body = await res.json().catch(() => ({}));
       if (!res.ok) {
-        throw new Error(body.error || "Failed to end session");
+        throw new Error(body.error || "Failed to complete payment");
       }
 
-      setFeedback({ text: `${paymentLabel} payment processed for ${st.name}. Station is now available.`, type: "success" });
+      setPaymentSuccess({
+        station: st,
+        amount: Number(body.session?.total) || total,
+        method: paymentMethod,
+        cashReceived: paymentMethod === "cash" ? received : undefined,
+        change: paymentMethod === "cash" ? Number((received - total).toFixed(2)) : undefined,
+        reference: body.session?.id ? `SES-${String(body.session.id).slice(0, 8).toUpperCase()}` : undefined,
+        paidAt: new Date().toISOString(),
+      });
+      setStationBilling(null);
+      setFeedback(null);
       setStations((prev) =>
-        prev.map((s) => (s.id === st.id ? { ...s, status: "available", customerName: undefined, startedAt: undefined, sessionStartedAt: undefined } : s))
+        prev.map((s) => (s.id === st.id ? { ...s, status: "available", awaitingPayment: false, checkoutAt: undefined, checkoutDurationSeconds: undefined, checkoutTotal: undefined, customerName: undefined, customerProfileId: undefined, sessionId: undefined, startedAt: undefined, sessionStartedAt: undefined } : s))
       );
       void fetchOverview();
+      void fetchReceipts();
     } catch (err: unknown) {
-      setFeedback({ text: errorMessage(err, "Failed to end session"), type: "error" });
+      setFeedback({ text: errorMessage(err, "Failed to complete payment. The frozen checkout remains available for retry."), type: "error" });
     } finally {
       setActionLoading(null);
     }
@@ -720,13 +809,26 @@ export default function StaffDashboard() {
   });
 
   const stationPaymentTotal = (station: StationItem) => {
+    if (station.checkoutTotal !== undefined) return station.checkoutTotal;
     if (!station.sessionStartedAt) return 0;
     const startedAt = new Date(station.sessionStartedAt).getTime();
     if (Number.isNaN(startedAt)) return 0;
-    return Number(Math.max(0, ((liveNow - startedAt) / 3_600_000) * 50).toFixed(2));
+    return Number(Math.max(0, ((liveNow - startedAt) / 3_600_000) * station.rate).toFixed(2));
+  };
+
+  const walletAllowedForStation = (station: StationItem) => {
+    const customer = customers.find((item) => item.id === station.customerProfileId);
+    return (customer?.balance ?? 0) >= stationPaymentTotal(station);
   };
 
   const stationElapsedTime = (station: StationItem) => {
+    if (station.checkoutDurationSeconds !== undefined) {
+      const elapsedSeconds = station.checkoutDurationSeconds;
+      const hours = String(Math.floor(elapsedSeconds / 3600)).padStart(2, "0");
+      const minutes = String(Math.floor((elapsedSeconds % 3600) / 60)).padStart(2, "0");
+      const seconds = String(elapsedSeconds % 60).padStart(2, "0");
+      return `${hours}:${minutes}:${seconds}`;
+    }
     if (!station.sessionStartedAt) return "00:00:00";
     const startedAt = new Date(station.sessionStartedAt).getTime();
     if (Number.isNaN(startedAt)) return "00:00:00";
@@ -737,14 +839,16 @@ export default function StaffDashboard() {
     return `${hours}:${minutes}:${seconds}`;
   };
 
-  const activeStationPayments = stations.filter((station) => station.status === "in-use");
+  const activeStationPayments = stations.filter((station) => station.status === "in-use" || station.awaitingPayment);
+  const receiptQuery = receiptSearch.trim().toLowerCase();
   const paidReceipts = receipts
     .filter((receipt) => receipt.status === "paid" || receipt.status === "completed")
     .filter((receipt) => {
-      const query = receiptSearch.trim().toLowerCase();
-      if (!query) return true;
-      return [receipt.id, receipt.customer, receipt.service, receipt.method].some((value) => value.toLowerCase().includes(query));
-    });
+      if (!receiptQuery) return true;
+      return [receipt.id, receipt.customer, receipt.service, receipt.method].some((value) => value.toLowerCase().includes(receiptQuery));
+    })
+    .sort((a, b) => (b.timestamp ? new Date(b.timestamp).getTime() : 0) - (a.timestamp ? new Date(a.timestamp).getTime() : 0));
+  const visiblePaidReceipts = receiptQuery ? paidReceipts : paidReceipts.slice(0, 10);
 
   return (
     <div className="nodecafe-root staff-dashboard-root">
@@ -797,14 +901,6 @@ export default function StaffDashboard() {
             </button>
 
             <button
-              className={`nodecafe-nav-item ${activeTab === "receipts" ? "active" : ""}`}
-              onClick={() => setActiveTab("receipts")}
-            >
-              <Receipt size={17} />
-              <span>Receipts</span>
-            </button>
-
-            <button
               className={`nodecafe-nav-item ${activeTab === "orders" ? "active" : ""}`}
               onClick={() => setActiveTab("orders")}
             >
@@ -853,13 +949,6 @@ export default function StaffDashboard() {
               <span>Customers &amp; Top-up</span>
             </button>
 
-            <button
-              className={`nodecafe-nav-item ${activeTab === "bookings" ? "active" : ""}`}
-              onClick={() => setActiveTab("bookings")}
-            >
-              <CalendarDays size={17} />
-              <span>Room Bookings</span>
-            </button>
           </nav>
         </div>
 
@@ -998,14 +1087,6 @@ export default function StaffDashboard() {
               </div>
 
               <div className="nodecafe-kpi-card">
-                <div className="nodecafe-kpi-label">Today&apos;s Bookings</div>
-                <div className="nodecafe-kpi-val">{overview.todayBookings}</div>
-                <div className="nodecafe-kpi-sub">
-                  Discussion rooms reserved
-                </div>
-              </div>
-
-              <div className="nodecafe-kpi-card">
                 <div className="nodecafe-kpi-label">Registered Customers</div>
                 <div className="nodecafe-kpi-val">{customers.length}</div>
                 <div className="nodecafe-kpi-sub">Checked in accounts</div>
@@ -1045,11 +1126,11 @@ export default function StaffDashboard() {
                         <div className="nodecafe-queue-actions">
                           <span style={{ fontSize: 13, fontWeight: 700, color: "#091c17" }}>₱{st.rate}/hr</span>
                           <button
-                            className="nodecafe-btn-decline"
-                            disabled={actionLoading === st.id}
-                            onClick={() => void handleEndSession(st)}
+                            className="nodecafe-btn-primary"
+                            style={{ width: "auto", padding: "8px 12px" }}
+                            onClick={() => void beginStationCheckout(st)}
                           >
-                            {actionLoading === st.id ? "Ending..." : "End Session"}
+                            {st.awaitingPayment ? "Open Billing" : "Process Payment"}
                           </button>
                         </div>
                       </div>
@@ -1127,11 +1208,11 @@ export default function StaffDashboard() {
                       </div>
 
                       <div style={{ fontSize: 11.5, color: "#6a887e", marginBottom: 8, lineHeight: 1.3 }}>
-                        {st.status === "in-use" ? (
-                          <span style={{ color: "#b91c1c", fontWeight: 600 }}>
-                            {st.customerName} · Time used: {stationElapsedTime(st)} · ₱{stationPaymentTotal(st).toFixed(2)}
-                          </span>
-                        ) : (
+                        {st.status === "in-use" || st.awaitingPayment ? (
+                             <span style={{ color: st.awaitingPayment ? "#92400e" : "#b91c1c", fontWeight: 600 }}>
+                               {st.customerName} · Time used: {stationElapsedTime(st)} · ₱{stationPaymentTotal(st).toFixed(2)}{st.awaitingPayment ? " · Awaiting payment" : ""}
+                             </span>
+                           ) : (
                           st.specs
                         )}
                       </div>
@@ -1139,13 +1220,12 @@ export default function StaffDashboard() {
 
                     <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 8, borderTop: "1px solid #f0f5f2" }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: "#091c17" }}>₱{st.rate}/hr</span>
-                      {st.status === "in-use" ? (
+                      {st.status === "in-use" || st.awaitingPayment ? (
                         <button
-                          style={{ fontSize: 11, padding: "4px 8px", background: "#fee2e2", color: "#991b1b", border: 0, borderRadius: 5, fontWeight: 700, cursor: actionLoading === st.id ? "wait" : "pointer" }}
-                          disabled={actionLoading === st.id}
-                          onClick={() => void handleEndSession(st)}
+                          style={{ fontSize: 11, padding: "4px 8px", background: "#0b2b23", color: "#fff", border: 0, borderRadius: 5, fontWeight: 700, cursor: "pointer" }}
+                          onClick={() => void beginStationCheckout(st)}
                         >
-                          {actionLoading === st.id ? "Ending..." : "End Session"}
+                          {st.awaitingPayment ? "Open Billing" : "Process Payment"}
                         </button>
                       ) : (
                         <button
@@ -1169,19 +1249,18 @@ export default function StaffDashboard() {
         {/* -------------------------------------------------------------
             TRANSACTIONS: STATION PAYMENT CHECKOUT
             ------------------------------------------------------------- */}
-        {(activeTab === "transactions" || activeTab === "receipts") && (
+        {activeTab === "transactions" && (
           <div className="nodecafe-page-view">
             <div className="nodecafe-page-header">
               <div>
-                <h2 className="nodecafe-page-title">{activeTab === "receipts" ? "Paid Receipts" : "Station Transactions"}</h2>
-                <p className="nodecafe-page-subtitle">{activeTab === "receipts" ? "Search completed client payments and receipt history." : "Collect the station payment, then end the customer session."}</p>
+                <h2 className="nodecafe-page-title">Station Transactions</h2>
+                <p className="nodecafe-page-subtitle">Collect station payments, end customer sessions, and review payment history.</p>
               </div>
               <button className="nodecafe-btn-decline" onClick={() => void fetchOverview()}>
                 Refresh sessions
               </button>
             </div>
 
-            {activeTab === "transactions" && (
             <div className="nodecafe-card" style={{ padding: "20px 24px" }}>
               <div className="nodecafe-card-kicker">Payment Queue</div>
               <div className="nodecafe-card-header" style={{ marginBottom: 18 }}>
@@ -1199,35 +1278,26 @@ export default function StaffDashboard() {
                     const total = stationPaymentTotal(station);
                     const customer = customers.find((item) => `${item.first_name} ${item.last_name}`.trim() === station.customerName);
                     const walletBalance = customer?.balance ?? 0;
-                    const walletAllowed = walletBalance >= total;
                     return (
                       <div key={station.id} style={{ border: "1px solid #dce9e2", borderRadius: 10, padding: "16px", display: "flex", justifyContent: "space-between", gap: 16, alignItems: "center", flexWrap: "wrap" }}>
                         <div>
                           <div style={{ display: "flex", alignItems: "center", gap: 8, marginBottom: 5 }}>
                             <Laptop size={16} color="#166534" />
                             <b style={{ color: "#091c17" }}>{station.name}</b>
-                            <span className="nodecafe-status-chip active">Active</span>
+                            <span className={`nodecafe-status-chip ${station.awaitingPayment ? "pending" : "active"}`}>{station.awaitingPayment ? "Awaiting Payment" : "Active"}</span>
                           </div>
                           <div style={{ color: "#547568", fontSize: 13 }}>{station.customerName || "Customer"} · Started {station.startedAt}</div>
-                          <div style={{ color: "#547568", fontSize: 12, marginTop: 4 }}>Time used: {stationElapsedTime(station)} · Rate: ₱50.00/hr · Wallet balance: ₱{walletBalance.toFixed(2)}</div>
+                          <div style={{ color: "#547568", fontSize: 12, marginTop: 4 }}>Time used: {stationElapsedTime(station)} · Rate: ₱{station.rate.toFixed(2)}/hr · Wallet balance: ₱{walletBalance.toFixed(2)}</div>
+                          {station.awaitingPayment && <span className="nodecafe-status-chip pending" style={{ marginTop: 6, display: "inline-flex" }}>Awaiting payment · frozen</span>}
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                           <b style={{ color: "#091c17", fontSize: 18 }}>₱{total.toFixed(2)}</b>
                           <button
-                            className="nodecafe-btn-decline"
-                            disabled={actionLoading === station.id}
-                            onClick={() => void handleEndSession(station, "cash")}
-                          >
-                            {actionLoading === station.id ? "Processing..." : "Pay Cash"}
-                          </button>
-                          <button
                             className="nodecafe-btn-primary"
-                            style={{ width: "auto", padding: "9px 14px", opacity: walletAllowed ? 1 : 0.55 }}
-                            disabled={actionLoading === station.id || !walletAllowed}
-                            title={walletAllowed ? "Charge customer wallet" : "Insufficient customer wallet balance"}
-                            onClick={() => void handleEndSession(station, "wallet")}
+                            style={{ width: "auto", padding: "9px 14px" }}
+                            onClick={() => void beginStationCheckout(station)}
                           >
-                            {actionLoading === station.id ? "Processing..." : "Pay Wallet"}
+                            {station.awaitingPayment ? "Open Billing" : "Process Payment"}
                           </button>
                         </div>
                       </div>
@@ -1236,23 +1306,21 @@ export default function StaffDashboard() {
                 </div>
               )}
             </div>
-            )}
 
-            {activeTab === "receipts" && (
             <div className="nodecafe-card" style={{ padding: "20px 24px" }}>
-              <div className="nodecafe-card-kicker">Receipt History</div>
+              <div className="nodecafe-card-kicker">Recent Payment History</div>
               <div className="nodecafe-card-header" style={{ marginBottom: 14 }}>
-                <h3 className="nodecafe-card-title">All clients paid history</h3>
-                <span style={{ fontSize: 12, color: "#6a887e" }}>{paidReceipts.length} receipt{paidReceipts.length === 1 ? "" : "s"}</span>
+                <h3 className="nodecafe-card-title">Completed client payments</h3>
+                <span style={{ fontSize: 12, color: "#6a887e" }}>{receiptQuery ? `${paidReceipts.length} matching payment${paidReceipts.length === 1 ? "" : "s"}` : `Showing ${visiblePaidReceipts.length} recent payment${visiblePaidReceipts.length === 1 ? "" : "s"}`}</span>
               </div>
               <div className="nodecafe-search-box" style={{ width: "100%", marginBottom: 14 }}>
                 <Search size={16} />
                 <input
                   type="search"
-                  placeholder="Search receipt, client, service, or payment method..."
+                  placeholder="Search payment, client, service, or payment method..."
                   value={receiptSearch}
                   onChange={(event) => setReceiptSearch(event.target.value)}
-                  aria-label="Search client paid receipts"
+                  aria-label="Search completed client payments"
                 />
               </div>
               <div className="nodecafe-table-card">
@@ -1268,13 +1336,13 @@ export default function StaffDashboard() {
                     </tr>
                   </thead>
                   <tbody>
-                    {paidReceipts.length === 0 ? (
+                    {visiblePaidReceipts.length === 0 ? (
                       <tr>
                         <td colSpan={6} style={{ textAlign: "center", padding: "26px 16px", color: "#6a887e" }}>
-                          {receiptSearch ? "No paid receipts match your search." : "No paid receipts yet."}
+                          {receiptQuery ? "No completed payments match your search." : "No recent completed payments yet."}
                         </td>
                       </tr>
-                    ) : paidReceipts.map((receipt) => (
+                    ) : visiblePaidReceipts.map((receipt) => (
                       <tr key={`${receipt.source}-${receipt.id}`}>
                         <td><code>{receipt.id}</code></td>
                         <td><b>{receipt.customer}</b></td>
@@ -1288,7 +1356,6 @@ export default function StaffDashboard() {
                 </table>
               </div>
             </div>
-            )}
           </div>
         )}
 
@@ -1400,7 +1467,7 @@ export default function StaffDashboard() {
             <div className="billing-page-header">
               <div>
                 <h2 className="billing-page-title">Billing</h2>
-                <p className="billing-page-subtitle">Cash at the counter. Settle client orders or bill a walk-in.</p>
+                <p className="billing-page-subtitle">Confirm café orders or station session payments at the counter.</p>
               </div>
               {billingOrder.length === 0 && (
                 <button
@@ -1450,7 +1517,44 @@ export default function StaffDashboard() {
               </div>
             )}
 
-            {billingOrder.length === 0 ? (
+            {stationBilling ? (
+              <div className="billing-layout">
+                <div className="billing-summary-panel">
+                  <div className="billing-panel-title"><Monitor size={15} /> Station Session</div>
+                  <div className="billing-items-list">
+                  <div className="billing-item-row"><div><div className="billing-item-name">Customer</div><div className="billing-item-meta">{stationBilling.customerName || "Customer"}</div></div></div>
+                  <div className="billing-item-row"><div><div className="billing-item-name">PC / Station</div><div className="billing-item-meta">{stationBilling.name}</div></div></div>
+                  <div className="billing-item-row"><div><div className="billing-item-name">Session start</div><div className="billing-item-meta">{stationBilling.startedAt || "—"}</div></div></div>
+                  <div className="billing-item-row"><div><div className="billing-item-name">Checkout time</div><div className="billing-item-meta">{stationBilling.checkoutAt ? new Date(stationBilling.checkoutAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"}</div></div></div>
+                  <div className="billing-item-row"><div><div className="billing-item-name">Final duration</div><div className="billing-item-meta">{stationElapsedTime(stationBilling)}</div></div><div className="billing-item-price">₱{stationPaymentTotal(stationBilling).toFixed(2)}</div></div>
+                  </div>
+                  <div className="billing-summary-footer">
+                    <div className="billing-summary-row"><span>Subtotal</span><span>₱{stationPaymentTotal(stationBilling).toFixed(2)}</span></div>
+                    <div className="billing-summary-row total"><span>Total Amount Due</span><span>₱{stationPaymentTotal(stationBilling).toFixed(2)}</span></div>
+                  </div>
+                </div>
+                <div className="billing-payment-panel">
+                  <div className="billing-section">
+                    <div className="billing-section-label"><Receipt size={14} /> Payment Method</div>
+                    <div style={{ display: "flex", gap: 8 }}>
+                      <button className={stationPaymentMethod === "cash" ? "billing-process-btn" : "billing-back-btn"} onClick={() => setStationPaymentMethod("cash")}>Cash</button>
+                      <button className={stationPaymentMethod === "wallet" ? "billing-process-btn" : "billing-back-btn"} onClick={() => setStationPaymentMethod("wallet")}>Wallet</button>
+                    </div>
+                  </div>
+                  {stationPaymentMethod === "cash" ? (
+                    <div className="billing-section">
+                      <div className="billing-section-label">Cash Received</div>
+                      <input type="number" min={stationPaymentTotal(stationBilling)} step="0.01" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} className="billing-customer-search-input" placeholder="Enter cash received" />
+                      <div className="billing-summary-row" style={{ marginTop: 12 }}><span>Change</span><b>₱{Math.max(0, Number(cashReceived || 0) - stationPaymentTotal(stationBilling)).toFixed(2)}</b></div>
+                    </div>
+                  ) : (
+                    <div className="billing-section"><div className="billing-section-label">Wallet Balance</div><div className="billing-total-amount">₱{(customers.find((customer) => customer.id === stationBilling.customerProfileId)?.balance ?? 0).toFixed(2)}</div><p style={{ fontSize: 12, color: "#66817B" }}>₱{stationPaymentTotal(stationBilling).toFixed(2)} will be deducted after confirmation.</p></div>
+                  )}
+                  <button className="billing-process-btn" disabled={actionLoading === stationBilling.id || (stationPaymentMethod === "cash" ? Number(cashReceived || 0) < stationPaymentTotal(stationBilling) : !walletAllowedForStation(stationBilling))} onClick={() => void handleEndSession(stationBilling, stationPaymentMethod)}>{actionLoading === stationBilling.id ? "Processing..." : "Confirm Payment"}</button>
+                  {feedback?.type === "error" && <p role="alert" style={{ color: "#991b1b", fontSize: 12 }}>{feedback.text}</p>}
+                </div>
+              </div>
+            ) : billingOrder.length === 0 ? (
               <div className="billing-empty">
                 <Receipt size={36} style={{ color: "#b0c8bf", marginBottom: 12 }} />
                 <p style={{ margin: 0, color: "#66817B", fontSize: 13.5 }}>
@@ -1712,63 +1816,6 @@ export default function StaffDashboard() {
           </div>
         )}
 
-        {/* -------------------------------------------------------------
-            TAB 5: ROOM BOOKINGS (FULL IN-PAGE VIEW)
-            ------------------------------------------------------------- */}
-        {activeTab === "bookings" && (
-          <div className="nodecafe-page-view">
-            <div className="nodecafe-page-header">
-              <div>
-                <h2 className="nodecafe-page-title">Discussion Room Bookings</h2>
-                <p className="nodecafe-page-subtitle">Manage reservations for The Studio and The Forum.</p>
-              </div>
-            </div>
-
-            <div className="nodecafe-rooms-grid">
-              <div className="nodecafe-room-card">
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <b style={{ fontSize: 16, color: "#091c17" }}>The Studio (1–4 Pax)</b>
-                    <span className="nodecafe-status-chip available">Available</span>
-                  </div>
-                  <div style={{ fontSize: 12.5, color: "#6a887e", marginBottom: 12 }}>
-                    Equipped with 4K display, high-speed fiber LAN, acoustic mic.
-                  </div>
-                  <div style={{ fontSize: 13, color: "#166534", fontWeight: 700, marginBottom: 14 }}>
-                    Next Booking: Today at 6:00 PM (Podcast recording)
-                  </div>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 14, borderTop: "1px solid #edf3f0" }}>
-                  <span style={{ fontSize: 15, fontWeight: 800, color: "#091c17" }}>₱350 / hr</span>
-                  <button className="nodecafe-btn-primary" style={{ width: "auto", padding: "8px 14px", fontSize: 12 }}>
-                    Check-in Client
-                  </button>
-                </div>
-              </div>
-
-              <div className="nodecafe-room-card">
-                <div>
-                  <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 6 }}>
-                    <b style={{ fontSize: 16, color: "#091c17" }}>The Forum (8–12 Pax)</b>
-                    <span className="nodecafe-status-chip available">Available</span>
-                  </div>
-                  <div style={{ fontSize: 12.5, color: "#6a887e", marginBottom: 12 }}>
-                    85-inch HDR screen, surround acoustic conference array.
-                  </div>
-                  <div style={{ fontSize: 13, color: "#0369a1", fontWeight: 700, marginBottom: 14 }}>
-                    Next Booking: Tomorrow at 2:00 PM (Team Workshop)
-                  </div>
-                </div>
-                <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 14, borderTop: "1px solid #edf3f0" }}>
-                  <span style={{ fontSize: 15, fontWeight: 800, color: "#091c17" }}>₱650 / hr</span>
-                  <button className="nodecafe-btn-primary" style={{ width: "auto", padding: "8px 14px", fontSize: 12 }}>
-                    Check-in Client
-                  </button>
-                </div>
-              </div>
-            </div>
-          </div>
-        )}
       </main>
 
       {/* Assign Station Modal */}
@@ -1960,6 +2007,37 @@ export default function StaffDashboard() {
             setActiveTab("customers");
           }}
         />
+      )}
+
+      {paymentSuccess && (
+        <div className="admin-modal-overlay" role="dialog" aria-modal="true">
+          <div className="admin-modal-card payment-success-modal digital-receipt" style={{ maxWidth: 420, textAlign: "center", padding: 28 }}>
+          <div className="payment-success-icon" aria-hidden="true"><CheckCircle2 size={38} /></div>
+          <div className="receipt-kicker">INTERNET CAFE</div>
+          <h3 style={{ margin: "8px 0 4px", color: "#0b2b23", fontSize: 21 }}>PAYMENT SUCCESSFUL</h3>
+          <p style={{ margin: "0 0 16px", color: "#66817B", fontSize: 12 }}>Official Payment Receipt</p>
+          <div className="receipt-separator" />
+          <div style={{ textAlign: "left", background: "#f4f8f5", borderRadius: 12, padding: "14px 16px", display: "grid", gap: 8, fontSize: 13 }}>
+            <div style={{ display: "flex", justifyContent: "space-between" }}><span>Receipt date</span><b>{new Date(paymentSuccess.paidAt).toLocaleString([], { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" })}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Customer</span><b>{paymentSuccess.station.customerName || "Customer"}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Station</span><b>{paymentSuccess.station.name}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Session start</span><b>{paymentSuccess.station.startedAt || "—"}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Session end</span><b>{paymentSuccess.station.checkoutAt ? new Date(paymentSuccess.station.checkoutAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Duration</span><b>{stationElapsedTime(paymentSuccess.station)}</b></div>
+              <div className="receipt-separator" />
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>PC Usage</span><b>₱{paymentSuccess.amount.toFixed(2)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15 }}><span>TOTAL</span><b>₱{paymentSuccess.amount.toFixed(2)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>Payment Method</span><b>{paymentSuccess.method === "cash" ? "Cash" : "Wallet"}</b></div>
+              {paymentSuccess.method === "cash" && <div style={{ display: "flex", justifyContent: "space-between" }}><span>Cash Received</span><b>₱{(paymentSuccess.cashReceived ?? 0).toFixed(2)}</b></div>}
+              {paymentSuccess.method === "cash" && <div style={{ display: "flex", justifyContent: "space-between" }}><span>Change</span><b>₱{(paymentSuccess.change ?? 0).toFixed(2)}</b></div>}
+              {paymentSuccess.reference && <div style={{ display: "flex", justifyContent: "space-between" }}><span>Reference</span><b>{paymentSuccess.reference}</b></div>}
+            </div>
+            <div className="receipt-separator" />
+            <div className="receipt-paid">PAID ✓</div>
+            <p className="receipt-thanks">Thank you for visiting!</p>
+            <button className="nodecafe-btn-primary" style={{ marginTop: 20 }} onClick={() => { setPaymentSuccess(null); setActiveTab("transactions"); void fetchOverview(); void fetchReceipts(); }}>Done</button>
+          </div>
+        </div>
       )}
 
       {showProfileModal && (

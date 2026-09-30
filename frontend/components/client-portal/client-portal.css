@@ -114,7 +114,7 @@
   margin-top: 1px;
 }
 
-/* Navigation List (ONLY: Home, Sessions, Book Room, Pre-order, Transactions, Account) */
+/* Navigation List */
 .client-sidebar-nav {
   display: flex;
   flex-direction: column;
@@ -474,7 +474,7 @@
    -------------------------------------------------------------------------- */
 .client-metrics-grid {
   display: grid;
-  grid-template-columns: repeat(4, 1fr);
+  grid-template-columns: repeat(3, 1fr);
   gap: 16px;
   margin: 18px 0 20px;
 }
@@ -538,20 +538,6 @@
   color: #365b7e;
 }
 
-/* Card 4: Bookings (Soft Blush Rose) */
-.client-metric-card.bookings {
-  background: linear-gradient(135deg, #fce9ed 0%, #fdf2f4 100%);
-}
-
-.client-metric-card.bookings .client-metric-icon-box {
-  background: #f7ced7;
-  color: #762235;
-}
-
-.client-metric-card.bookings .client-metric-label {
-  color: #7a3647;
-}
-
 .client-metric-icon-box {
   width: 44px;
   height: 44px;
@@ -595,7 +581,7 @@
    -------------------------------------------------------------------------- */
 .client-panels-grid {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
+  grid-template-columns: repeat(2, 1fr);
   gap: 18px;
   margin-bottom: 20px;
 }
@@ -639,20 +625,7 @@
   color: #22c55e;
 }
 
-/* Panel 2: Room Booking */
-.client-panel.rooms .client-panel-bg {
-  background-image: url("/images/dashboard/discussion-room.jpg");
-}
-
-.client-panel.rooms .client-panel-overlay {
-  background: linear-gradient(180deg, rgba(31, 23, 17, 0.93) 0%, rgba(22, 16, 11, 0.88) 100%);
-}
-
-.client-panel.rooms .client-panel-header-icon {
-  color: #e5bf84;
-}
-
-/* Panel 3: Pre-order Services */
+/* Panel 2: Pre-order Services */
 .client-panel.preorder .client-panel-bg {
   background-image: url("/images/dashboard/iced-latte.jpg");
   background-position: right 25% center;

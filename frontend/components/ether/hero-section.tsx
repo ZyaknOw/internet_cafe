@@ -42,7 +42,7 @@ export function HeroSection() {
                 href="#rates"
                 className="inline-flex items-center gap-2 rounded-full bg-[#1e2a1e] px-6 py-3 text-sm font-bold text-[#f5f1e8] hover:bg-[#7a5f28] transition-colors"
               >
-                Book a Room
+Explore PC Services
                 <svg
                   width="16"
                   height="16"

@@ -30,7 +30,7 @@ export function ClientHeader({ displayName = "Client", avatarUrl, onLogout, onOp
     <header className="client-header-bar">
       <div className="client-header-titles">
         <h1>Welcome back, {displayName.split(" ")[0]}!</h1>
-        <p>Manage your sessions, bookings, and account from one place.</p>
+        <p>Manage your PC sessions, orders, and account from one place.</p>
       </div>
 
       <div className="client-header-actions">

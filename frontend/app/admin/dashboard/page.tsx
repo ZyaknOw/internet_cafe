@@ -31,7 +31,6 @@ import {
   Coins,
   TrendingUp,
   Clock3,
-  CalendarDays,
   ShieldCheck,
   CheckCircle,
   Play,
@@ -42,10 +41,8 @@ import {
 interface AdminOverviewData {
   dailyRevenue: number;
   activeSessions: number;
-  roomOccupancy: number;
   totalUsers: number;
   pcsOnline: { active: number; total: number };
-  availableRooms: { inUse: number; total: number };
   pendingOrders: number;
   pendingRequests: number;
 }
@@ -151,15 +148,13 @@ export default function AdminDashboard() {
   const router = useRouter();
   const { profile, logout } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<"overview" | "clients" | "pc-stations" | "transactions" | "receipts">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "clients" | "pc-stations" | "transactions">("overview");
 
   const [overview, setOverview] = useState<AdminOverviewData>({
     dailyRevenue: 0,
     activeSessions: 0,
-    roomOccupancy: 0,
     totalUsers: 0,
     pcsOnline: { active: 0, total: 8 },
-    availableRooms: { inUse: 0, total: 4 },
     pendingOrders: 0,
     pendingRequests: 0,
   });
@@ -381,13 +376,15 @@ export default function AdminDashboard() {
     };
   }, [fetchOverview, fetchTransactions]);
 
+  const transactionQuery = transactionSearch.trim().toLowerCase();
   const paidTransactions = transactions
     .filter((tx) => tx.status === "paid" || tx.status === "completed")
     .filter((tx) => {
-      const query = transactionSearch.trim().toLowerCase();
-      if (!query) return true;
-      return [tx.id, tx.customer, tx.service, tx.method].some((value) => value.toLowerCase().includes(query));
-    });
+      if (!transactionQuery) return true;
+      return [tx.id, tx.customer, tx.service, tx.method].some((value) => value.toLowerCase().includes(transactionQuery));
+    })
+    .sort((a, b) => (b.timestamp ? new Date(b.timestamp).getTime() : 0) - (a.timestamp ? new Date(a.timestamp).getTime() : 0));
+  const visibleTransactions = transactionQuery ? paidTransactions : paidTransactions.slice(0, 10);
 
   // Handle inline approvals
   const handleApproveItem = async (item: PendingItem) => {
@@ -524,13 +521,6 @@ export default function AdminDashboard() {
               <span>Transactions</span>
             </button>
 
-            <button
-              className={`nodecafe-nav-item ${activeTab === "receipts" ? "active" : ""}`}
-              onClick={() => setActiveTab("receipts")}
-            >
-              <Receipt size={17} />
-              <span>Receipts</span>
-            </button>
           </nav>
         </div>
 
@@ -651,16 +641,6 @@ export default function AdminDashboard() {
                 </div>
                 <div className="nodecafe-kpi-sub">
                   {overview.pcsOnline.total - overview.pcsOnline.active} currently available
-                </div>
-              </div>
-
-              <div className="nodecafe-kpi-card">
-                <div className="nodecafe-kpi-label">Private rooms</div>
-                <div className="nodecafe-kpi-val">
-                  {overview.availableRooms.inUse} / {overview.availableRooms.total}
-                </div>
-                <div className="nodecafe-kpi-sub">
-                  {overview.availableRooms.total - overview.availableRooms.inUse} currently available
                 </div>
               </div>
 
@@ -1048,14 +1028,14 @@ export default function AdminDashboard() {
         {/* -------------------------------------------------------------
             TAB 5: TRANSACTIONS (FULL IN-PAGE VIEW)
             ------------------------------------------------------------- */}
-        {(activeTab === "transactions" || activeTab === "receipts") && (
+        {activeTab === "transactions" && (
           <div className="nodecafe-page-view">
             {/* Header */}
             <div className="nodecafe-page-header">
               <div>
-                <h2 className="nodecafe-page-title">{activeTab === "receipts" ? "Paid Receipts" : "Transactions & Audit Trail"}</h2>
+                <h2 className="nodecafe-page-title">Transactions &amp; Audit Trail</h2>
                 <p className="nodecafe-page-subtitle">
-                  Search every completed café order and station checkout by receipt, client, service, or payment method.
+                  Search completed café orders and station checkouts by client, service, or payment method.
                 </p>
               </div>
               <button
@@ -1072,10 +1052,10 @@ export default function AdminDashboard() {
               <Search size={16} />
               <input
                 type="search"
-                placeholder="Search paid receipts or client name..."
+                placeholder="Search completed payments or client name..."
                 value={transactionSearch}
                 onChange={(event) => setTransactionSearch(event.target.value)}
-                aria-label="Search paid receipts"
+                aria-label="Search completed payments"
               />
             </div>
 
@@ -1103,7 +1083,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
-            {/* Transactions Table */}
+            {/* Recent transactions by default; search to find older client purchases. */}
             <div className="nodecafe-table-card">
               <table className="nodecafe-table">
                 <thead>
@@ -1118,15 +1098,15 @@ export default function AdminDashboard() {
                   </tr>
                 </thead>
                 <tbody>
-                  {paidTransactions.length === 0 ? (
+                  {visibleTransactions.length === 0 ? (
                     <tr>
                       <td colSpan={7} style={{ color: "#6a887e", padding: "28px 16px", textAlign: "center" }}>
                         {transactionsLoaded
-                          ? (transactionSearch ? "No paid receipts match your search." : "No paid receipts yet.")
-                          : "Loading receipts…"}
+                          ? (transactionQuery ? "No completed payments match your search." : "No recent completed payments yet.")
+                          : "Loading transactions…"}
                       </td>
                     </tr>
-                  ) : paidTransactions.map((tx) => (
+                  ) : visibleTransactions.map((tx) => (
                     <tr key={`${tx.source}-${tx.id}`}>
                       <td>
                         <code style={{ fontWeight: 700, color: "#0b2b23" }}>{tx.id}</code>

@@ -22,7 +22,7 @@ const playfair = Playfair_Display({
 export const metadata: Metadata = {
   title: "INTERNET CAFE — Sanctuary for Deep Work & Coffee",
   description: "Premium connectivity, specialty roasts, and quiet corners designed for deep work. A sanctuary for students and professionals.",
-  keywords: ["internet cafe", "coworking", "Manila", "premium Wi-Fi", "study space", "private rooms"],
+  keywords: ["internet cafe", "Manila", "premium Wi-Fi", "PC gaming", "study space"],
 };
 
 export default function RootLayout({

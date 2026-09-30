@@ -60,7 +60,7 @@ const LEGAL_DOCS: Record<string, { title: string; sections: { heading: string; b
       },
       {
         heading: "Session and Billing Terms",
-        body: "Hourly rates are billed in minimum increments as specified at the time of booking. Session time begins upon successful client authentication at the assigned station and ends when the user logs out or the session is terminated by staff. Unused prepaid time is non-refundable and non-transferable between accounts unless explicitly stated in writing. Rates are subject to change with reasonable notice posted at the facility and on our website."
+        body: "Hourly rates are billed in minimum increments as specified at the time of service. Session time begins upon successful client authentication at the assigned station and ends when the user logs out or the session is terminated by staff. Unused prepaid time is non-refundable and non-transferable between accounts unless explicitly stated in writing. Rates are subject to change with reasonable notice posted at the facility and on our website."
       },
       {
         heading: "Facility Rules",

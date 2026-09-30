@@ -196,7 +196,7 @@ export function StaffRegisterCustomerModal({
             >
               <span>👤 Snack Customer</span>
               <span style={{ fontSize: 11, color: "#6a796e", fontWeight: 400 }}>
-                (Standard user account with PC session &amp; café booking access)
+                (Standard user account with PC session and café access)
               </span>
             </div>
           </div>

@@ -4,7 +4,6 @@ import { useEffect, useState } from "react";
 import {
   Home,
   Gamepad2,
-  CalendarDays,
   Coffee,
   Receipt,
   UserRound,
@@ -14,7 +13,6 @@ import {
 export type ClientNavTab =
   | "home"
   | "sessions"
-  | "book-room"
   | "pre-order"
   | "transactions"
   | "account";
@@ -30,7 +28,6 @@ interface ClientSidebarProps {
 const NAV_ITEMS: { id: ClientNavTab; label: string; icon: typeof Home }[] = [
   { id: "home", label: "Home", icon: Home },
   { id: "sessions", label: "Sessions", icon: Gamepad2 },
-  { id: "book-room", label: "Book Room", icon: CalendarDays },
   { id: "pre-order", label: "Pre-order", icon: Coffee },
   { id: "transactions", label: "Transactions", icon: Receipt },
   { id: "account", label: "Account", icon: UserRound },
