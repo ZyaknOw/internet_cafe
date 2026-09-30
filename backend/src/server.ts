@@ -299,6 +299,63 @@ app.post("/api/client/session-sign-in", async (req, res) => {
   res.json({ session: data });
 });
 
+app.get("/api/public/stations", async (_req, res) => {
+  try {
+    const { data: stations, error: stationsError } = await supabaseAdmin
+      .from("stations")
+      .select("id, name, type, hourly_rate, notes, status")
+      .order("name");
+
+    if (stationsError) {
+      logSupabaseError("loading public stations", stationsError);
+      return res.status(500).json({ error: "Could not load station availability." });
+    }
+
+    const { data: openSessions, error: sessionsError } = await supabaseAdmin
+      .from("station_sessions")
+      .select("station_key, station_name, status")
+      .in("status", ["pending_client", "active", "awaiting_payment"]);
+
+    if (sessionsError) {
+      logSupabaseError("loading public station availability", sessionsError);
+      return res.status(500).json({ error: "Could not load station availability." });
+    }
+
+    const occupied = new Set<string>();
+
+    for (const session of openSessions ?? []) {
+      if (session.station_key) {
+        occupied.add(String(session.station_key).toUpperCase());
+      }
+
+      if (session.station_name) {
+        occupied.add(String(session.station_name).toUpperCase());
+      }
+    }
+
+    const publicStations = (stations ?? []).map((station) => ({
+      id: station.id,
+      name: station.name,
+      type: station.type,
+      hourlyRate: Number(station.hourly_rate),
+      specs: station.notes ?? "",
+      available: !occupied.has(String(station.name).toUpperCase()),
+    }));
+
+    res.json({
+      stations: publicStations,
+      summary: {
+        total: publicStations.length,
+        available: publicStations.filter((station) => station.available).length,
+        occupied: publicStations.filter((station) => !station.available).length,
+      },
+    });
+  } catch (error) {
+    console.error("[public stations]", error);
+    res.status(500).json({ error: "Could not load station availability." });
+  }
+});
+
 app.get("/api/stations", requireActiveUser, requireRole("admin", "staff"), async (_req, res) => {
   try {
     const { data: stations, error: stErr } = await supabaseAdmin
