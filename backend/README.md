@@ -33,3 +33,51 @@ Temporarily add `BOOTSTRAP_ADMIN_EMAIL` and `BOOTSTRAP_ADMIN_PASSWORD` (at least
 - `POST /api/auth/activate-profile` — invited user activates profile after choosing password.
 
 The frontend attaches the Supabase access token automatically through `frontend/lib/api.ts`.
+
+## PC session transfers
+
+Apply `supabase/migrations/012_station_session_transfers.sql` after migration 011
+before using Transfer PC. The migration keeps history in
+`station_sessions.transfer_history` and installs a service-role-only transactional
+function. It also prevents duplicate open sessions across legacy PC name variants
+such as `PC-01` and `PC-1`. If existing duplicates make that index fail, resolve
+the conflicting open sessions before retrying; the migration rolls back as a unit.
+
+Staff/admin calls `POST /api/station-sessions/:sessionId/transfer` with
+`destinationStationId` and `expectedStationKey`. The original session, customer,
+start time, hourly rate, and payment flow remain intact. A short database lock
+serializes transfers with session writes; unavailable destinations, stale source
+selections, and sessions already in checkout return a conflict.
+
+Regression tests use an isolated PGlite PostgreSQL runtime, not your Supabase data.
+For example, in PowerShell from `backend`:
+
+```powershell
+npm install --prefix "$env:TEMP/netcafe-transfer-validation" --no-save --package-lock=false @electric-sql/pglite
+$env:PGLITE_MODULE = Join-Path $env:TEMP 'netcafe-transfer-validation/node_modules/@electric-sql/pglite'
+node --test tests/station-transfers.test.cjs
+```
+
+Tests cover timer/rate preservation, audit history, same/occupied/stale targets,
+all open session states, rollback on write failure, conflicting destination
+requests, checkout, API authorization wiring, and request/error handling. PGlite
+serializes queries; a multi-connection concurrency test against a staging
+PostgreSQL instance is recommended before production rollout.
+
+# Cancel PC billing
+
+Apply `supabase/migrations/013_station_session_billing_pause.sql` before deploying
+the billing cancellation update. `POST /api/station-sessions/:sessionId/cancel-checkout`
+requires staff/admin access and `{ "checkoutAt": "<current checkout_at>" }`.
+It resumes the existing session, clears the frozen checkout, and records excluded
+billing time without changing the original start, customer, station or transfer history.
+Run the regression coverage with `node --test tests/station-checkout.test.cjs`.
+
+## Optional snacks in PC billing
+
+Apply `supabase/migrations/014_station_session_snacks.sql` before collecting a PC
+payment with snacks. Product data now lives in `src/snack-products.json`, shared
+with the frontend's existing snack-menu export. The payment endpoint accepts
+`snacks: [{ id, quantity }]`, validates prices against that catalog, and saves
+item snapshots and the combined total on the same session payment. No separate
+snack order or payment is created. PC-only payments still work before migration 014.

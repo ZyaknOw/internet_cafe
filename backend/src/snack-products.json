@@ -1,0 +1,4 @@
+[
+  { "id": "sn-crackers", "name": "Crackers", "price": 10, "type": "Savory", "description": "A pack of crackers for a quick snack during your PC session.", "image": "/images/snacks/crackers.png" },
+  { "id": "sn-stick-crackers", "name": "Stick Crackers", "price": 10, "type": "Savory", "description": "A pack of crunchy stick crackers for a simple snack break.", "image": "/images/snacks/stick-crackers.png" }
+]

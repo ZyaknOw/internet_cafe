@@ -9,8 +9,27 @@ import {
   MapPin,
   Menu,
   Monitor,
+  Wifi,
+  Gamepad2,
   X,
 } from "lucide-react";
+
+const API_URL =
+  process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+
+type PublicStationResponse = {
+  summary: { total: number; available: number; occupied: number };
+};
+
+const formatRate = (rate: number) => new Intl.NumberFormat("en-PH", {
+  style: "currency", currency: "PHP", maximumFractionDigits: 2, minimumFractionDigits: 0,
+}).format(rate);
+
+const SERVICES = [
+  { title: "Powerful PCs", description: "Fast, responsive stations for your next match or everyday tasks.", icon: Monitor },
+  { title: "Fast internet", description: "Reliable connectivity for gaming, downloads, and online work.", icon: Wifi },
+  { title: "Play. Work. Recharge.", description: "From schoolwork and research to casual browsing. Make the time yours.", icon: Gamepad2 },
+];
 
 /* ─── Legal documents ─── */
 const LEGAL_DOCS: Record<string, { title: string; sections: { heading: string; body: string }[] }> = {
@@ -168,47 +187,86 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
   const [activeDoc, setActiveDoc] = useState<string | null>(null);
   const [mobileMenuOpen, setMobileMenuOpen] = useState(false);
   const [scrolled, setScrolled] = useState(false);
-  const rateGridRef = useRef<HTMLDivElement>(null);
+  const landingRef = useRef<HTMLElement>(null);
+  const [stationData, setStationData] = useState<PublicStationResponse | null>(null);
+  const [stationLoading, setStationLoading] = useState(true);
+  const [stationError, setStationError] = useState(false);
 
   useEffect(() => {
-    const grid = rateGridRef.current;
-    if (!grid || !("IntersectionObserver" in window)) return;
-    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
-    if (motion.matches) return;
+    let stopped = false;
+    let controller: AbortController | undefined;
+    let pending = false;
+    const refresh = async () => {
+      if (pending) return;
+      pending = true;
+      controller = new AbortController();
+      const timeout = window.setTimeout(() => controller?.abort(), 8000);
+      try {
+        const response = await fetch(API_URL + "/api/public/stations", {
+          signal: controller.signal, cache: "no-store", credentials: "omit",
+        });
+        if (!response.ok) throw new Error("Availability unavailable");
+        const data: PublicStationResponse = await response.json();
+        if (!data?.summary ||
+          ![data.summary.total, data.summary.available, data.summary.occupied].every(
+            (value) => Number.isInteger(value) && value >= 0,
+          ) || data.summary.available + data.summary.occupied !== data.summary.total
+        ) throw new Error("Invalid availability");
+        if (!stopped) { setStationData({ summary: data.summary }); setStationError(false); }
+      } catch {
+        // Never present stale availability as live after a failed refresh.
+        if (!stopped) { setStationData(null); setStationError(true); }
+      } finally {
+        window.clearTimeout(timeout);
+        pending = false;
+        if (!stopped) setStationLoading(false);
+      }
+    };
+    void refresh();
+    const interval = window.setInterval(() => void refresh(), 10000);
+    return () => { stopped = true; controller?.abort(); window.clearInterval(interval); };
+  }, []);
 
-    const cards = Array.from(grid.querySelectorAll<HTMLElement>(".lp-pc-card"));
+  useEffect(() => {
+    const root = landingRef.current;
+    if (!root || !("IntersectionObserver" in window)) return;
+    const motion = window.matchMedia("(prefers-reduced-motion: reduce)");
     const reveal = (card: HTMLElement) => {
       card.dataset.reveal = "visible";
       observer.unobserve(card);
     };
     const observer = new IntersectionObserver((entries) => {
-      for (const entry of entries) {
-        if (entry.isIntersecting) reveal(entry.target as HTMLElement);
-      }
-    }, { threshold: 0.12 });
-
-    // Each card enters once, including when the grid stacks on mobile.
-    cards.forEach((card) => {
-      card.dataset.reveal = "waiting";
-      observer.observe(card);
-    });
+      entries.forEach((entry) => { if (entry.isIntersecting) reveal(entry.target as HTMLElement); });
+    }, { threshold: 0.08 });
+    const observeNew = () => {
+      if (motion.matches) return;
+      root.querySelectorAll<HTMLElement>(".lp-reveal, .lp-pc-card").forEach((card) => {
+        if (card.dataset.reveal) return;
+        card.dataset.reveal = "waiting";
+        observer.observe(card);
+      });
+    };
+    observeNew();
+    // Keep one reveal system for content that arrives asynchronously.
+    const additions = new MutationObserver(observeNew);
+    additions.observe(root, { childList: true, subtree: true });
     const onFocus = (event: FocusEvent) => {
-      const card = (event.target as HTMLElement).closest<HTMLElement>(".lp-pc-card");
-      if (card?.dataset.reveal === "waiting") reveal(card);
+      const card = (event.target as HTMLElement).closest<HTMLElement>("[data-reveal]");
+      if (card) reveal(card);
     };
     const onMotionChange = () => {
       if (motion.matches) {
         observer.disconnect();
-        cards.forEach((card) => { delete card.dataset.reveal; });
-      }
+        root.querySelectorAll<HTMLElement>("[data-reveal]").forEach((card) => { card.dataset.reveal = "visible"; });
+      } else observeNew();
     };
-    grid.addEventListener("focusin", onFocus);
+    root.addEventListener("focusin", onFocus);
     motion.addEventListener("change", onMotionChange);
     return () => {
-      observer.disconnect();
-      grid.removeEventListener("focusin", onFocus);
+      observer.disconnect(); additions.disconnect();
+      root.removeEventListener("focusin", onFocus);
       motion.removeEventListener("change", onMotionChange);
-      cards.forEach((card) => { delete card.dataset.reveal; });
+      root.querySelectorAll<HTMLElement>("[data-reveal]").forEach((card) => { delete card.dataset.reveal; });
     };
   }, []);
 
@@ -226,7 +284,7 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
   ];
 
   return (
-    <main id="home" className="lp-root">
+    <main id="home" className="lp-root" ref={landingRef}>
       <a href="#main-content" className="skip-link">Skip to main content</a>
 
       {/* ─── NAVBAR ─── */}
@@ -238,8 +296,9 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
           </a>
           <div className="lp-nav-links">
             <a href="#home">Home</a>
-            <a href="#rates">Rates</a>
+            <a href="#pcs">PCs</a>
             <a href="#services">Services</a>
+            <a href="#rates">Rates</a>
             <a href="#snacks">Snacks</a>
           </div>
           <div className="lp-nav-actions">
@@ -258,6 +317,7 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
         {mobileMenuOpen && (
           <div className="lp-mobile-menu">
             <a href="#home" onClick={() => setMobileMenuOpen(false)}>Home</a>
+            <a href="#pcs" onClick={() => setMobileMenuOpen(false)}>PCs</a>
             <a href="#rates" onClick={() => setMobileMenuOpen(false)}>Rates</a>
             <a href="#services" onClick={() => setMobileMenuOpen(false)}>Services</a>
             <a href="#snacks" onClick={() => setMobileMenuOpen(false)}>Snacks</a>
@@ -279,48 +339,84 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
           <div className="lp-hero-overlay" aria-hidden="true" />
           <div className="lp-hero-inner">
             <div className="lp-hero-content">
-              <p className="lp-hero-kicker">PC SESSIONS AT INTERNET CAFE</p>
+              <p className="lp-hero-kicker">PLAY. WORK. MAKE IT YOUR TIME.</p>
               <h1 id="hero-heading" className="lp-hero-h1">
-                Your next<br />
-                <em className="lp-hero-em">PC session</em><br />
-                starts here.
+                Fast PCs. Fast internet.<br />
+                <em className="lp-hero-em">Your time, your way.</em>
               </h1>
               <p className="lp-hero-desc">
-                Use a PC at Internet Cafe. Sign in to your account to view stations and manage your session.
+                Game on. Get the schoolwork done. Browse, connect, and work online with fast, responsive PCs.
               </p>
               <div className="lp-hero-ctas">
-                <button className="lp-btn-primary" onClick={() => onShowAuth()}>
-                  Sign In for PC Services <ArrowRight size={16} aria-hidden="true" />
+                <button className="lp-btn-primary" onClick={onShowAuth}>
+                  Sign In & Start Your Session <ArrowRight size={16} aria-hidden="true" />
                 </button>
-                <a href="#rates" className="lp-btn-outline">PC Services & Rates</a>
+                <a href="#pcs" className="lp-btn-outline">See Availability</a>
+              </div>
+              <p className="lp-hero-rate">Your next hour: <a href="#rates">{formatRate(PC_SERVICE.hourlyRate)} / hour</a></p>
+              <div className="lp-hero-caption" aria-hidden="true">A STATION FOR YOUR NEXT GREAT IDEA. OR YOUR NEXT GREAT GAME.
               </div>
             </div>
           </div>
         </section>
 
-        {/* Public rate shares the configuration used by session billing. */}
-        <section id="services" className="lp-section" aria-labelledby="services-heading">
-          <div className="lp-section-inner">
-            <div className="lp-section-head">
-              <span className="lp-eyebrow">PC SERVICES</span>
-              <h2 id="services-heading" className="lp-section-h2">Your PC time, made simple.</h2>
-              <p className="lp-section-sub">
-                Explore our PC service and hourly rate, then sign in when you are ready.
+        <section id="pcs" className="lp-section lp-availability" aria-labelledby="availability-heading">
+          <div className="lp-section-inner lp-availability-inner">
+            <div className="lp-reveal">
+              <span className="lp-eyebrow">YOUR NEXT SESSION STARTS HERE</span>
+              <h2 id="availability-heading" className="lp-section-h2">
+                {stationData && stationData.summary.total > 0
+                  ? <>{stationData.summary.total} PCs.<br />Built to perform.</>
+                  : <>Find your place.<br />Make it your time.</>}
+              </h2>
+            </div>
+            <div className="lp-live-summary" role="status" aria-atomic="true">
+              {stationData && <>
+                <p className="lp-live-label is-live"><span className="lp-live-dot" aria-hidden="true" /><strong>{stationData.summary.available}</strong> Available Now</p>
+                <p className="lp-in-use"><strong>{stationData.summary.occupied}</strong> Currently In Use</p>
+              </>}
+              <p className="lp-availability-message">
+                {stationLoading ? "Checking live availability..." : stationError
+                  ? "Live availability is temporarily unavailable. Please check back shortly."
+                  : stationData?.summary.total === 0 ? "No PCs are listed yet. Please check back soon."
+                  : "Updated every 10 seconds. Drop in when you are ready."}
               </p>
             </div>
-            <div id="rates" className="lp-pc-grid" ref={rateGridRef}>
+          </div>
+        </section>
+
+        <section id="services" className="lp-section lp-section--alt" aria-labelledby="services-heading">
+          <div className="lp-section-inner">
+            <div className="lp-section-head lp-reveal">
+              <span className="lp-eyebrow">WHY CHOOSE OUR CAFE</span>
+              <h2 id="services-heading" className="lp-section-h2">Good connections. Better sessions.</h2>
+            </div>
+            <div className="lp-services-grid">
+              {SERVICES.map(({ title, description, icon: Icon }, index) => (
+                <article className="lp-service-card lp-reveal" key={title} style={{ animationDelay: index * 60 + "ms" }}>
+                  <div className="lp-service-icon"><Icon size={23} aria-hidden="true" /></div>
+                  <h3>{title}</h3><p>{description}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
+
+        {/* Public rate shares the configuration used by session billing. */}
+        <section id="rates" className="lp-section" aria-labelledby="rates-heading">
+          <div className="lp-section-inner">
+            <div className="lp-pc-grid">
               <article className="lp-pc-card lp-pc-card--rate">
                 <div className="lp-service-icon" aria-hidden="true"><Monitor size={24} /></div>
-                <span className="lp-eyebrow">PC USE</span>
-                <h3>{PC_SERVICE.name}</h3>
-                <p>{PC_SERVICE.description}</p>
-                <p>Sign in to view stations, check availability, and keep track of your PC session.</p>
+                <span className="lp-eyebrow">{PC_SERVICE.name} &bull; HOURLY RATE</span>
+                <h2 id="rates-heading" className="lp-section-h2">A little time.<br />A lot of possibilities.</h2>
+                <p>Settle in for your next game, deadline, or discovery.</p>
                 <p className="lp-pc-price">
-                  <strong>{new Intl.NumberFormat("en-PH", { style: "currency", currency: "PHP", maximumFractionDigits: 0 }).format(PC_SERVICE.hourlyRate)}</strong>
+                  <strong>{formatRate(PC_SERVICE.hourlyRate)}</strong>
                   <span> / hour</span>
                 </p>
                 <button className="lp-btn-primary" onClick={onShowAuth}>
-                  Sign In for a PC Session <ArrowRight size={16} aria-hidden="true" />
+                  Start Your Session <ArrowRight size={16} aria-hidden="true" />
                 </button>
               </article>
               <article id="snacks" className="lp-pc-card lp-pc-card--snacks" aria-labelledby="snacks-heading">
@@ -331,12 +427,9 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
                   </div>
                 </div>
                 <div className="lp-snack-copy">
-                  <span className="lp-eyebrow">A LITTLE EXTRA, IF YOU LIKE</span>
-                  <h3 id="snacks-heading">Make time for a bite.</h3>
-                  <p>Crackers or stick crackers for your PC break. Sold per pack, purchased separately, and always optional. Just here for the PC? That is welcome too.</p>
-                  <button className="lp-view-all" onClick={onShowAuth}>
-                    Sign In <ArrowRight size={16} aria-hidden="true" />
-                  </button>
+                  <span className="lp-eyebrow">ON THE SIDE</span>
+                  <h3 id="snacks-heading">Fuel your session.</h3>
+                  <p>Crackers and stick crackers for a little boost between tasks. Purchased separately, always optional.</p>
                 </div>
               </article>
             </div>
@@ -348,11 +441,11 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
           <div className="lp-cta-inner">
             <div className="lp-cta-text">
               <span className="lp-cta-kicker" aria-hidden="true">YOUR NEXT PC SESSION</span>
-              <h2 id="cta-heading" className="lp-cta-h2">Make time for your next session.</h2>
-              <p className="lp-cta-desc">Access your account and PC sessions at Internet Cafe.</p>
+              <h2 id="cta-heading" className="lp-cta-h2">Your next session is calling.</h2>
+              <p className="lp-cta-desc">Pick your pace. Sign in and make yourself at home.</p>
               <div className="lp-cta-actions">
                 <button className="lp-btn-cta-primary" onClick={() => onShowAuth()}>
-                  Sign In for PC Services <ArrowRight size={16} aria-hidden="true" />
+                  Let’s Get Started <ArrowRight size={16} aria-hidden="true" />
                 </button>
                 <a href="#rates" className="lp-btn-cta-outline">View Rates</a>
               </div>
@@ -375,6 +468,7 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
               <h4 className="lp-footer-col-title">Navigate</h4>
               <ul className="lp-footer-links">
                 <li><a href="#home">Home</a></li>
+                <li><a href="#pcs">PCs</a></li>
                 <li><a href="#rates">Rates</a></li>
                 <li><a href="#services">Services</a></li>
                 <li><a href="#snacks">Snacks</a></li>

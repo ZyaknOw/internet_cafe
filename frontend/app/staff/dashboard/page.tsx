@@ -5,11 +5,13 @@ import { useRouter } from "next/navigation";
 import "@/components/admin-portal/admin-portal.css";
 import "@/components/staff-portal/staff-portal.css";
 import { StaffRegisterCustomerModal } from "@/components/staff-portal/staff-register-customer-modal";
+import { TransferPcModal, stationIdentity, type TransferredSession, type TransferDestination } from "@/components/staff-portal/transfer-pc-modal";
 import { StaffActionModals } from "@/components/staff-portal/staff-action-modals";
 import { UserProfileModal } from "@/components/shared/user-profile-modal";
 import { useAuth, AccountProfile } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase/client";
 import { SNACK_PRODUCTS } from "@/lib/snack-menu";
+import { ReceiptDetailsModal, type ReceiptRecord } from "@/components/shared/receipt-details-modal";
 import {
   Bell,
   Users,
@@ -41,6 +43,8 @@ interface StaffOverviewData {
   orderCounts: { pending: number; preparing: number; ready: number; completed: number };
 }
 
+interface PaidSnack { id: string; name: string; price: number; quantity: number }
+
 interface StationItem {
   id: string;
   name: string;
@@ -54,6 +58,7 @@ interface StationItem {
   startedAt?: string;
   sessionStartedAt?: string;
   checkoutAt?: string;
+  billingPausedMs?: number;
   checkoutDurationSeconds?: number;
   checkoutTotal?: number;
   awaitingPayment?: boolean;
@@ -67,17 +72,6 @@ interface OrderItem {
   total: number;
   status: "Pending" | "Preparing" | "Ready" | "Completed";
   time: string;
-}
-
-interface ReceiptRecord {
-  id: string;
-  source: "order" | "session";
-  customer: string;
-  service: string;
-  amount: number;
-  method: string;
-  timestamp: string | null;
-  status: string;
 }
 
 interface CustomerUser {
@@ -106,6 +100,7 @@ interface OpenSession {
   hourly_rate: number;
   started_at: string | null;
   checkout_at?: string | null;
+  billing_paused_ms?: number;
   checkout_duration_seconds?: number | null;
   checkout_total?: number | null;
   status: string;
@@ -208,15 +203,24 @@ export default function StaffDashboard() {
 
   const [billingOrder, setBillingOrder] = useState<CartItem[]>([]);
   const [billingCustomerId, setBillingCustomerId] = useState("");
+  const stationRevision = useRef(0);
+  const [transferStation, setTransferStation] = useState<StationItem | null>(null);
   const [stationBilling, setStationBilling] = useState<StationItem | null>(null);
   const [stationPaymentMethod, setStationPaymentMethod] = useState<"cash" | "wallet">("cash");
   const [cashReceived, setCashReceived] = useState("");
-  const [paymentSuccess, setPaymentSuccess] = useState<{ station: StationItem; amount: number; method: "cash" | "wallet"; cashReceived?: number; change?: number; reference?: string; paidAt: string } | null>(null);
+  const [billingSnacks, setBillingSnacks] = useState<{ sessionId: string; quantities: Record<string, number> } | null>(null);
+  const selectedBillingSnacks = SNACK_PRODUCTS.flatMap((product) => {
+    const quantity = billingSnacks?.sessionId === stationBilling?.sessionId ? billingSnacks?.quantities[product.id] || 0 : 0;
+    return quantity ? [{ ...product, quantity }] : [];
+  });
+  const billingSnackTotal = selectedBillingSnacks.reduce((sum, item) => sum + item.price * item.quantity, 0);
+  const [paymentSuccess, setPaymentSuccess] = useState<{ station: StationItem; amount: number; pcTotal: number; snacks: PaidSnack[]; method: "cash" | "wallet"; cashReceived?: number; change?: number; reference?: string; paidAt: string } | null>(null);
   // Walk-in café payment is cash-only at the counter — no wallet/e-wallet.
   const [billingProcessing, setBillingProcessing] = useState(false);
   const [billingHistory, setBillingHistory] = useState<BillingRecord[]>([]);
   const [billingCustomerSearch, setBillingCustomerSearch] = useState("");
   const [receipts, setReceipts] = useState<ReceiptRecord[]>([]);
+  const [selectedReceipt, setSelectedReceipt] = useState<ReceiptRecord | null>(null);
   const [receiptSearch, setReceiptSearch] = useState("");
 
   // A café ticket the client filed from their own portal. It carries no payment
@@ -488,6 +492,7 @@ export default function StaffDashboard() {
 
   // Fetch staff data from backend
   const fetchOverview = useCallback(async () => {
+    const revision = stationRevision.current;
     void fetchCustomers();
     try {
       const { data: { session } } = await supabase.auth.getSession();
@@ -505,7 +510,7 @@ export default function StaffDashboard() {
 
       // Sync active station sessions
       const sessRes = await fetch(`${API_URL}/api/station-sessions/open`, { headers });
-      if (sessRes.ok) {
+      if (sessRes.ok && revision === stationRevision.current) {
         const body = await sessRes.json() as { sessions?: OpenSession[] };
         const openSessions = body.sessions || [];
         const openMap = new Map();
@@ -519,6 +524,7 @@ export default function StaffDashboard() {
           }
         }
 
+        if (revision !== stationRevision.current) return;
         setStations((prev) =>
           prev.map((st) => {
             const open =
@@ -534,6 +540,7 @@ export default function StaffDashboard() {
                 sessionId: open.id,
                 rate: Number(open.hourly_rate) || st.rate,
                 checkoutAt: open.checkout_at || undefined,
+                billingPausedMs: Number(open.billing_paused_ms || 0),
                 checkoutDurationSeconds: open.checkout_duration_seconds ?? undefined,
                 checkoutTotal: open.checkout_total ?? undefined,
                 awaitingPayment: open.status === "awaiting_payment",
@@ -614,7 +621,38 @@ export default function StaffDashboard() {
     };
   }, [fetchOverview, fetchPendingClientOrders, fetchReceipts]);
 
+  const completeTransfer = (session: TransferredSession, destination: TransferDestination) => {
+    stationRevision.current += 1;
+    // Move the returned session immediately, preserving its original start/rate.
+    setStations((previous) => {
+      const allStations = previous.some((station) => station.id === destination.id || stationIdentity(station.name) === stationIdentity(session.station_key))
+        ? previous : [...previous, { ...destination, status: "available" as const }];
+      return allStations.map((station) => {
+        if (station.id === destination.id || stationIdentity(station.name) === stationIdentity(session.station_key)) {
+          return { ...station, status: "in-use", awaitingPayment: false,
+            checkoutAt: undefined, checkoutDurationSeconds: undefined, checkoutTotal: undefined,
+            sessionId: session.id, customerName: session.customer_name,
+            customerProfileId: session.customer_profile_id, rate: Number(session.hourly_rate),
+            sessionStartedAt: session.started_at,
+            billingPausedMs: Number(session.billing_paused_ms || 0),
+            startedAt: new Date(session.started_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }) };
+        }
+        if (station.sessionId === session.id) {
+          return { ...station, status: "available", sessionId: undefined, customerName: undefined,
+            customerProfileId: undefined, startedAt: undefined, sessionStartedAt: undefined,
+            awaitingPayment: false, checkoutAt: undefined, checkoutDurationSeconds: undefined, checkoutTotal: undefined };
+        }
+        return station;
+      });
+    });
+    setStationBilling((current) => current?.sessionId === session.id ? null : current);
+    setTransferStation(null);
+    setFeedback({ text: "Session transferred to " + session.station_name + ". The timer and rate continue unchanged.", type: "success" });
+    void fetchOverview();
+  };
+
   const openStationBilling = (station: StationItem) => {
+    setBillingSnacks(null);
     setStationBilling(station);
     setStationPaymentMethod("cash");
     setCashReceived("");
@@ -664,9 +702,44 @@ export default function StaffDashboard() {
     }
   };
 
+  const cancelStationCheckout = async (station: StationItem) => {
+    if (actionLoading || !station.sessionId || !station.checkoutAt) return;
+    setActionLoading(station.id);
+    setFeedback(null);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch(`${API_URL}/api/station-sessions/${encodeURIComponent(station.sessionId)}/cancel-checkout`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json", ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}) },
+        body: JSON.stringify({ checkoutAt: station.checkoutAt }),
+      });
+      const body = await res.json() as { session?: OpenSession; error?: string };
+      if (!res.ok || !body.session) throw new Error(body.error || "Could not cancel billing.");
+      const resumed = body.session;
+      stationRevision.current += 1;
+      setLiveNow(Date.now());
+      setStations((previous) => previous.map((item) => item.sessionId === resumed.id ? {
+        ...item, status: "in-use", awaitingPayment: false,
+        billingPausedMs: Number(resumed.billing_paused_ms || 0),
+        checkoutAt: undefined, checkoutDurationSeconds: undefined, checkoutTotal: undefined,
+      } : item));
+      setStationBilling(null);
+      setCashReceived("");
+      setStationPaymentMethod("cash");
+      setActiveTab("stations");
+      setFeedback({ text: "Billing cancelled. The same session has resumed.", type: "success" });
+      setBillingSnacks(null);
+      void fetchOverview();
+    } catch (err: unknown) {
+      setFeedback({ text: errorMessage(err, "Could not cancel billing. Please try again."), type: "error" });
+    } finally {
+      setActionLoading(null);
+    }
+  };
+
   // Final station-session payment is submitted only from Billing.
   const handleEndSession = async (st: StationItem, paymentMethod: "cash" | "wallet") => {
-    const total = stationPaymentTotal(st);
+    const total = stationBillingTotal(st);
     const received = Number(cashReceived);
     if (paymentMethod === "cash" && (!Number.isFinite(received) || received < total)) {
       setFeedback({ text: `Cash received must be at least ₱${total.toFixed(2)}.`, type: "error" });
@@ -688,7 +761,7 @@ export default function StaffDashboard() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ paymentMethod, ...(paymentMethod === "cash" ? { cashReceived: received } : {}) }),
+        body: JSON.stringify({ paymentMethod, snacks: selectedBillingSnacks.map(({ id, quantity }) => ({ id, quantity })), ...(paymentMethod === "cash" ? { cashReceived: received } : {}) }),
       });
 
       const body = await res.json().catch(() => ({}));
@@ -699,14 +772,17 @@ export default function StaffDashboard() {
       setPaymentSuccess({
         station: st,
         amount: Number(body.session?.total) || total,
+        pcTotal: Number(body.session?.checkout_total ?? stationPaymentTotal(st)),
+        snacks: body.session?.snack_items ?? [],
         method: paymentMethod,
-        cashReceived: paymentMethod === "cash" ? received : undefined,
-        change: paymentMethod === "cash" ? Number((received - total).toFixed(2)) : undefined,
+        cashReceived: paymentMethod === "cash" ? Number(body.session?.cash_received ?? received) : undefined,
+        change: paymentMethod === "cash" ? Number(body.session?.change_due ?? (received - total)) : undefined,
         reference: body.session?.id ? `SES-${String(body.session.id).slice(0, 8).toUpperCase()}` : undefined,
         paidAt: new Date().toISOString(),
       });
       setStationBilling(null);
       setFeedback(null);
+      setBillingSnacks(null);
       setStations((prev) =>
         prev.map((s) => (s.id === st.id ? { ...s, status: "available", awaitingPayment: false, checkoutAt: undefined, checkoutDurationSeconds: undefined, checkoutTotal: undefined, customerName: undefined, customerProfileId: undefined, sessionId: undefined, startedAt: undefined, sessionStartedAt: undefined } : s))
       );
@@ -813,12 +889,14 @@ export default function StaffDashboard() {
     if (!station.sessionStartedAt) return 0;
     const startedAt = new Date(station.sessionStartedAt).getTime();
     if (Number.isNaN(startedAt)) return 0;
-    return Number(Math.max(0, ((liveNow - startedAt) / 3_600_000) * station.rate).toFixed(2));
+    return Number(Math.max(0, ((liveNow - startedAt - (station.billingPausedMs || 0)) / 3_600_000) * station.rate).toFixed(2));
   };
+
+  const stationBillingTotal = (station: StationItem) => stationPaymentTotal(station) + (station.sessionId === stationBilling?.sessionId ? billingSnackTotal : 0);
 
   const walletAllowedForStation = (station: StationItem) => {
     const customer = customers.find((item) => item.id === station.customerProfileId);
-    return (customer?.balance ?? 0) >= stationPaymentTotal(station);
+    return (customer?.balance ?? 0) >= stationBillingTotal(station);
   };
 
   const stationElapsedTime = (station: StationItem) => {
@@ -832,7 +910,7 @@ export default function StaffDashboard() {
     if (!station.sessionStartedAt) return "00:00:00";
     const startedAt = new Date(station.sessionStartedAt).getTime();
     if (Number.isNaN(startedAt)) return "00:00:00";
-    const elapsedSeconds = Math.max(0, Math.floor((liveNow - startedAt) / 1000));
+    const elapsedSeconds = Math.max(0, Math.floor((liveNow - startedAt - (station.billingPausedMs || 0)) / 1000));
     const hours = String(Math.floor(elapsedSeconds / 3600)).padStart(2, "0");
     const minutes = String(Math.floor((elapsedSeconds % 3600) / 60)).padStart(2, "0");
     const seconds = String(elapsedSeconds % 60).padStart(2, "0");
@@ -1125,6 +1203,8 @@ export default function StaffDashboard() {
                         </div>
                         <div className="nodecafe-queue-actions">
                           <span style={{ fontSize: 13, fontWeight: 700, color: "#091c17" }}>₱{st.rate}/hr</span>
+                          <>
+                          {st.sessionId && st.sessionStartedAt && !st.awaitingPayment && <button type="button" className="staff-transfer-button" onClick={() => setTransferStation(st)}>Transfer PC</button>}
                           <button
                             className="nodecafe-btn-primary"
                             style={{ width: "auto", padding: "8px 12px" }}
@@ -1132,6 +1212,7 @@ export default function StaffDashboard() {
                           >
                             {st.awaitingPayment ? "Open Billing" : "Process Payment"}
                           </button>
+                        </>
                         </div>
                       </div>
                     ))
@@ -1218,15 +1299,18 @@ export default function StaffDashboard() {
                       </div>
                     </div>
 
-                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 8, borderTop: "1px solid #f0f5f2" }}>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", flexWrap: "wrap", gap: 8, paddingTop: 8, borderTop: "1px solid #f0f5f2" }}>
                       <span style={{ fontSize: 13, fontWeight: 700, color: "#091c17" }}>₱{st.rate}/hr</span>
                       {st.status === "in-use" || st.awaitingPayment ? (
-                        <button
+                        <>
+                          {st.sessionId && st.sessionStartedAt && !st.awaitingPayment && <button type="button" className="staff-transfer-button" onClick={() => setTransferStation(st)}>Transfer PC</button>}
+                          <button
                           style={{ fontSize: 11, padding: "4px 8px", background: "#0b2b23", color: "#fff", border: 0, borderRadius: 5, fontWeight: 700, cursor: "pointer" }}
                           onClick={() => void beginStationCheckout(st)}
                         >
                           {st.awaitingPayment ? "Open Billing" : "Process Payment"}
                         </button>
+                        </>
                       ) : (
                         <button
                           style={{ fontSize: 11, padding: "4px 8px", background: "#0b2b23", color: "#fff", border: 0, borderRadius: 5, fontWeight: 700, cursor: "pointer" }}
@@ -1292,6 +1376,8 @@ export default function StaffDashboard() {
                         </div>
                         <div style={{ display: "flex", alignItems: "center", gap: 10, flexWrap: "wrap" }}>
                           <b style={{ color: "#091c17", fontSize: 18 }}>₱{total.toFixed(2)}</b>
+                          <>
+                          {station.sessionId && station.sessionStartedAt && !station.awaitingPayment && <button type="button" className="staff-transfer-button" onClick={() => setTransferStation(station)}>Transfer PC</button>}
                           <button
                             className="nodecafe-btn-primary"
                             style={{ width: "auto", padding: "9px 14px" }}
@@ -1299,6 +1385,7 @@ export default function StaffDashboard() {
                           >
                             {station.awaitingPayment ? "Open Billing" : "Process Payment"}
                           </button>
+                        </>
                         </div>
                       </div>
                     );
@@ -1343,8 +1430,8 @@ export default function StaffDashboard() {
                         </td>
                       </tr>
                     ) : visiblePaidReceipts.map((receipt) => (
-                      <tr key={`${receipt.source}-${receipt.id}`}>
-                        <td><code>{receipt.id}</code></td>
+                      <tr key={`${receipt.source}-${receipt.id}`} className="receipt-history-row" onClick={() => setSelectedReceipt(receipt)}>
+                        <td><button type="button" className="receipt-history-action" aria-label={`View receipt ${receipt.id} for ${receipt.customer}`} onClick={(event) => { event.stopPropagation(); setSelectedReceipt(receipt); }}><Receipt size={14} /><code>{receipt.id}</code></button></td>
                         <td><b>{receipt.customer}</b></td>
                         <td>{receipt.service}</td>
                         <td><b>₱{receipt.amount.toFixed(2)}</b></td>
@@ -1521,16 +1608,18 @@ export default function StaffDashboard() {
               <div className="billing-layout">
                 <div className="billing-summary-panel">
                   <div className="billing-panel-title"><Monitor size={15} /> Station Session</div>
+                  <button className="billing-back-btn" disabled={!!actionLoading} onClick={() => void cancelStationCheckout(stationBilling)}>Back / Cancel Billing</button>
                   <div className="billing-items-list">
                   <div className="billing-item-row"><div><div className="billing-item-name">Customer</div><div className="billing-item-meta">{stationBilling.customerName || "Customer"}</div></div></div>
                   <div className="billing-item-row"><div><div className="billing-item-name">PC / Station</div><div className="billing-item-meta">{stationBilling.name}</div></div></div>
                   <div className="billing-item-row"><div><div className="billing-item-name">Session start</div><div className="billing-item-meta">{stationBilling.startedAt || "—"}</div></div></div>
                   <div className="billing-item-row"><div><div className="billing-item-name">Checkout time</div><div className="billing-item-meta">{stationBilling.checkoutAt ? new Date(stationBilling.checkoutAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"}</div></div></div>
-                  <div className="billing-item-row"><div><div className="billing-item-name">Final duration</div><div className="billing-item-meta">{stationElapsedTime(stationBilling)}</div></div><div className="billing-item-price">₱{stationPaymentTotal(stationBilling).toFixed(2)}</div></div>
+                  <div className="billing-item-row"><div><div className="billing-item-name">PC Usage</div><div className="billing-item-meta">{stationElapsedTime(stationBilling)}</div></div><div className="billing-item-price">₱{stationPaymentTotal(stationBilling).toFixed(2)}</div></div>
+                  {selectedBillingSnacks.map((item) => <div className="billing-item-row" key={item.id}><div><div className="billing-item-name">{item.name}</div><div className="billing-item-meta">{item.quantity} × ₱{item.price.toFixed(2)}</div></div><div className="billing-item-price">₱{(item.price * item.quantity).toFixed(2)}</div></div>)}
                   </div>
                   <div className="billing-summary-footer">
-                    <div className="billing-summary-row"><span>Subtotal</span><span>₱{stationPaymentTotal(stationBilling).toFixed(2)}</span></div>
-                    <div className="billing-summary-row total"><span>Total Amount Due</span><span>₱{stationPaymentTotal(stationBilling).toFixed(2)}</span></div>
+                    <div className="billing-summary-row"><span>Subtotal</span><span>₱{stationBillingTotal(stationBilling).toFixed(2)}</span></div>
+                    <div className="billing-summary-row total"><span>Total Amount Due</span><span>₱{stationBillingTotal(stationBilling).toFixed(2)}</span></div>
                   </div>
                 </div>
                 <div className="billing-payment-panel">
@@ -1541,16 +1630,36 @@ export default function StaffDashboard() {
                       <button className={stationPaymentMethod === "wallet" ? "billing-process-btn" : "billing-back-btn"} onClick={() => setStationPaymentMethod("wallet")}>Wallet</button>
                     </div>
                   </div>
+                  <div className="billing-section billing-snacks">
+                    <div className="billing-section-label">Would they like to add some snacks?</div>
+                    <p className="billing-snacks-hint">Optional · added to this payment</p>
+                    {SNACK_PRODUCTS.map((product) => {
+                      const quantity = selectedBillingSnacks.find((item) => item.id === product.id)?.quantity || 0;
+                      const setQuantity = (value: number) => setBillingSnacks((current) => ({
+                        sessionId: stationBilling.sessionId!,
+                        quantities: { ...(current && current.sessionId === stationBilling.sessionId ? current.quantities : {}), [product.id]: Math.min(99, Math.max(0, value)) },
+                      }));
+                      return <div className="billing-snack-row" key={product.id}>
+                        <img src={product.image} alt="" width={36} height={36} />
+                        <div className="billing-snack-name"><b>{product.name}</b><span>₱{product.price.toFixed(2)} / pack</span></div>
+                        <div className="billing-snack-quantity">
+                          <button type="button" aria-label={`Remove one ${product.name}`} disabled={!!actionLoading || quantity === 0} onClick={() => setQuantity(quantity - 1)}>−</button>
+                          <output aria-label={`${product.name} quantity`}>{quantity}</output>
+                          <button type="button" aria-label={`Add one ${product.name}`} disabled={!!actionLoading || quantity === 99} onClick={() => setQuantity(quantity + 1)}>+</button>
+                        </div>
+                      </div>;
+                    })}
+                  </div>
                   {stationPaymentMethod === "cash" ? (
                     <div className="billing-section">
                       <div className="billing-section-label">Cash Received</div>
-                      <input type="number" min={stationPaymentTotal(stationBilling)} step="0.01" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} className="billing-customer-search-input" placeholder="Enter cash received" />
-                      <div className="billing-summary-row" style={{ marginTop: 12 }}><span>Change</span><b>₱{Math.max(0, Number(cashReceived || 0) - stationPaymentTotal(stationBilling)).toFixed(2)}</b></div>
+                      <input type="number" min={stationBillingTotal(stationBilling)} step="0.01" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} className="billing-customer-search-input" placeholder="Enter cash received" />
+                      <div className="billing-summary-row" style={{ marginTop: 12 }}><span>Change</span><b>₱{Math.max(0, Number(cashReceived || 0) - stationBillingTotal(stationBilling)).toFixed(2)}</b></div>
                     </div>
                   ) : (
-                    <div className="billing-section"><div className="billing-section-label">Wallet Balance</div><div className="billing-total-amount">₱{(customers.find((customer) => customer.id === stationBilling.customerProfileId)?.balance ?? 0).toFixed(2)}</div><p style={{ fontSize: 12, color: "#66817B" }}>₱{stationPaymentTotal(stationBilling).toFixed(2)} will be deducted after confirmation.</p></div>
+                    <div className="billing-section"><div className="billing-section-label">Wallet Balance</div><div className="billing-total-amount">₱{(customers.find((customer) => customer.id === stationBilling.customerProfileId)?.balance ?? 0).toFixed(2)}</div><p style={{ fontSize: 12, color: "#66817B" }}>₱{stationBillingTotal(stationBilling).toFixed(2)} will be deducted after confirmation.</p></div>
                   )}
-                  <button className="billing-process-btn" disabled={actionLoading === stationBilling.id || (stationPaymentMethod === "cash" ? Number(cashReceived || 0) < stationPaymentTotal(stationBilling) : !walletAllowedForStation(stationBilling))} onClick={() => void handleEndSession(stationBilling, stationPaymentMethod)}>{actionLoading === stationBilling.id ? "Processing..." : "Confirm Payment"}</button>
+                  <button className="billing-process-btn" disabled={actionLoading === stationBilling.id || (stationPaymentMethod === "cash" ? Number(cashReceived || 0) < stationBillingTotal(stationBilling) : !walletAllowedForStation(stationBilling))} onClick={() => void handleEndSession(stationBilling, stationPaymentMethod)}>{actionLoading === stationBilling.id ? "Processing..." : "Confirm Payment"}</button>
                   {feedback?.type === "error" && <p role="alert" style={{ color: "#991b1b", fontSize: 12 }}>{feedback.text}</p>}
                 </div>
               </div>
@@ -1818,6 +1927,14 @@ export default function StaffDashboard() {
 
       </main>
 
+      {/* Transfer the same session to another available PC. */}
+      {transferStation?.sessionId && <TransferPcModal
+        sessionId={transferStation.sessionId}
+        sourceName={transferStation.name}
+        customerName={transferStation.customerName || "Customer"}
+        onClose={() => setTransferStation(null)}
+        onTransferred={completeTransfer}
+      />}
       {/* Assign Station Modal */}
       {assignStation && (
         <div className="admin-modal-overlay" onClick={() => setAssignStation(null)} role="dialog" aria-modal="true">
@@ -2009,6 +2126,8 @@ export default function StaffDashboard() {
         />
       )}
 
+      {selectedReceipt && <ReceiptDetailsModal receipt={selectedReceipt} onClose={() => setSelectedReceipt(null)} />}
+
       {paymentSuccess && (
         <div className="admin-modal-overlay" role="dialog" aria-modal="true">
           <div className="admin-modal-card payment-success-modal digital-receipt" style={{ maxWidth: 420, textAlign: "center", padding: 28 }}>
@@ -2025,7 +2144,8 @@ export default function StaffDashboard() {
               <div style={{ display: "flex", justifyContent: "space-between" }}><span>Session end</span><b>{paymentSuccess.station.checkoutAt ? new Date(paymentSuccess.station.checkoutAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"}</b></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span>Duration</span><b>{stationElapsedTime(paymentSuccess.station)}</b></div>
               <div className="receipt-separator" />
-              <div style={{ display: "flex", justifyContent: "space-between" }}><span>PC Usage</span><b>₱{paymentSuccess.amount.toFixed(2)}</b></div>
+              <div style={{ display: "flex", justifyContent: "space-between" }}><span>PC Usage</span><b>₱{paymentSuccess.pcTotal.toFixed(2)}</b></div>
+              {paymentSuccess.snacks.map((item) => <div key={item.id} style={{ display: "flex", justifyContent: "space-between", gap: 12 }}><span>{item.name} × {item.quantity} @ ₱{item.price.toFixed(2)}</span><b>₱{(item.price * item.quantity).toFixed(2)}</b></div>)}
               <div style={{ display: "flex", justifyContent: "space-between", fontSize: 15 }}><span>TOTAL</span><b>₱{paymentSuccess.amount.toFixed(2)}</b></div>
               <div style={{ display: "flex", justifyContent: "space-between" }}><span>Payment Method</span><b>{paymentSuccess.method === "cash" ? "Cash" : "Wallet"}</b></div>
               {paymentSuccess.method === "cash" && <div style={{ display: "flex", justifyContent: "space-between" }}><span>Cash Received</span><b>₱{(paymentSuccess.cashReceived ?? 0).toFixed(2)}</b></div>}

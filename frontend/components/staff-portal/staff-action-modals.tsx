@@ -1,5 +1,7 @@
 "use client";
 
+import { TransferPcModal } from "./transfer-pc-modal";
+
 import { useEffect, useState, useCallback } from "react";
 import {
   X,
@@ -143,6 +145,7 @@ export function StaffActionModals({
 }: ActionModalProps) {
   // Data collections
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
+  const [transferSession, setTransferSession] = useState<StationSessionRecord | null>(null);
   const [openSessions, setOpenSessions] = useState<StationSessionRecord[]>([]);
   const [loading, setLoading] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
@@ -638,6 +641,11 @@ export function StaffActionModals({
         {/* Active Sessions Sub-tab */}
         {sessionSubTab === "active" && (
           <div>
+            {transferSession && <TransferPcModal sessionId={transferSession.id} sourceName={transferSession.station_key} customerName={transferSession.customer_name} onClose={() => setTransferSession(null)} onTransferred={(updated) => {
+              setOpenSessions((previous) => previous.map((item) => item.id === updated.id ? { ...item, ...updated } : item));
+              setTransferSession(null);
+              onDataChanged?.();
+            }} />}
             <div style={{ maxHeight: 340, overflowY: "auto", display: "grid", gap: 8 }}>
               {openSessions.length === 0 ? (
                 <div style={{ textAlign: "center", padding: 28, fontSize: 13, color: "#6a796e" }}>
@@ -680,9 +688,7 @@ export function StaffActionModals({
                       </div>
                     </div>
 
-                    <span style={{ fontSize: 12, color: "#6e7b71", fontWeight: 600 }}>
-                      Process payment from Billing
-                    </span>
+                    {session.status === "active" && session.started_at ? <button className="staff-transfer-button" onClick={() => setTransferSession(session)}>Transfer PC</button> : <span>Process payment from Billing</span>}
                   </div>
                 ))
               )}

@@ -2309,3 +2309,49 @@
   color: #66817b;
   font-size: 12px;
 }
+
+/* Native dialog keeps keyboard focus in the transfer confirmation. */
+.staff-transfer-dialog { width: min(480px, calc(100vw - 32px)); max-height: calc(100dvh - 40px); overflow-y: auto; margin: auto; padding: 28px; border: 1px solid #dce9e2; border-radius: 18px; background: #faf8f4; color: #142219; box-shadow: 0 24px 80px #0003; }
+.staff-transfer-dialog::backdrop { background: #0b201bb3; }
+.staff-transfer-dialog h2 { margin: 0 0 16px; }
+.staff-transfer-dialog p { font-size: 14px; line-height: 1.6; margin: 14px 0; }
+.staff-transfer-dialog label { display: block; font-weight: 600; margin: 20px 0 8px; }
+.staff-transfer-dialog select { width: 100%; padding: 12px; border: 1px solid #cbd5e1; border-radius: 8px; background: white; color: #142219; }
+.staff-transfer-actions { display: flex; justify-content: flex-end; flex-wrap: wrap; gap: 12px; margin-top: 24px; }
+.staff-transfer-actions button { width: auto; }
+.staff-transfer-dialog button:disabled { opacity: .55; cursor: not-allowed; }
+.staff-transfer-button { border: 1px solid currentColor; border-radius: 8px; background: transparent; color: inherit; padding: 7px 10px; font: inherit; font-size: 12px; font-weight: 600; cursor: pointer; white-space: nowrap; }
+.staff-transfer-button:hover { background: #8aa89726; }
+.staff-transfer-button:focus-visible { outline: 2px solid #4d977e; outline-offset: 3px; }
+.staff-transfer-dialog .staff-transfer-button { color: #142219; }
+.staff-glass-root .nodecafe-queue-actions { flex-wrap: wrap; }
+.billing-snacks-hint { margin: 0 0 10px; font-size: 12px; color: #66817b; }
+.billing-snack-row { display: flex; align-items: center; gap: 10px; padding: 8px 0; }
+.billing-snack-row img { object-fit: contain; border-radius: 6px; }
+.billing-snack-name { flex: 1; min-width: 0; display: grid; gap: 3px; font-size: 12px; }
+.billing-snack-name span { color: #66817b; }
+.billing-snack-quantity { display: flex; align-items: center; gap: 9px; }
+.billing-snack-quantity button { width: 28px; height: 28px; border: 1px solid #d7e5de; border-radius: 6px; background: #f4f8f5; color: #264b3c; cursor: pointer; }
+.billing-snack-quantity button:disabled { opacity: .45; cursor: default; }
+.billing-snack-quantity output { min-width: 18px; text-align: center; font-size: 12px; }
+.receipt-history-row { cursor: pointer; }
+.receipt-history-row:hover, .receipt-history-row:focus-within { background: #edf5ef; }
+.receipt-history-action { display: inline-flex; align-items: center; gap: 6px; border: 0; background: transparent; color: inherit; cursor: pointer; padding: 4px; }
+.receipt-history-action:focus-visible { outline: 2px solid #4d977e; border-radius: 4px; }
+.receipt-details-dialog { width: min(440px, calc(100vw - 32px)); max-height: calc(100dvh - 48px); overflow-y: auto; margin: auto; padding: 24px; border-left: 0; border-right: 0; border-radius: 16px; color: #0b2b23; text-align: center; box-shadow: 0 24px 80px #10251b40; }
+.receipt-details-dialog[open] { animation: receiptDetailsEnter .24s ease-out both; }
+.receipt-details-dialog::backdrop { background: #0b201b80; animation: receiptBackdropEnter .24s ease-out both; }
+.receipt-details-dialog.is-closing { animation: receiptDetailsExit .18s ease-in both; }
+.receipt-details-dialog.is-closing::backdrop { animation: receiptBackdropExit .18s ease-in both; }
+.receipt-details-dialog .receipt-kicker { margin-top: 12px; }
+.receipt-details-dialog h3 { margin: 8px 0; font-size: 21px; }
+.receipt-detail-lines { text-align: left; background: #f4f8f5; border-radius: 12px; padding: 14px 16px; display: grid; gap: 10px; font-size: 13px; }
+.receipt-detail-row { display: flex; justify-content: space-between; gap: 14px; }
+.receipt-detail-row b { text-align: right; overflow-wrap: anywhere; min-width: 0; max-width: 65%; }
+.receipt-detail-row small { display: block; color: #66817b; margin-top: 3px; }
+.receipt-details-dialog > button { margin-top: 20px; }
+@keyframes receiptDetailsEnter { from { opacity: 0; transform: translateY(14px) scale(.97); } to { opacity: 1; transform: translateY(0) scale(1); } }
+@keyframes receiptDetailsExit { to { opacity: 0; transform: translateY(10px) scale(.98); } }
+@keyframes receiptBackdropEnter { from { opacity: 0; } to { opacity: 1; } }
+@keyframes receiptBackdropExit { to { opacity: 0; } }
+@media (prefers-reduced-motion: reduce) { .receipt-details-dialog[open], .receipt-details-dialog::backdrop, .receipt-details-dialog .payment-success-icon { animation: none; } }

@@ -7,6 +7,8 @@ import { UserProfileModal } from "@/components/shared/user-profile-modal";
 import { useAuth } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase/client";
 import { SNACK_PRODUCTS } from "@/lib/snack-menu";
+import { PC_SERVICE } from "../../../../backend/src/pc-services";
+import { ReceiptDetailsModal, type ReceiptRecord } from "@/components/shared/receipt-details-modal";
 import {
   Bell,
   Monitor,
@@ -68,6 +70,7 @@ interface PlacedOrder {
 }
 
 interface TransactionRow {
+  receipt?: ReceiptRecord;
   id: string;
   service: string;
   amount: number;
@@ -75,15 +78,6 @@ interface TransactionRow {
   date: string;
   status: string;
 }
-
-// Starting history for the Billing & Transaction History tab. Confirmed café
-// orders are prepended to this list so the new charge is visible immediately.
-const TRANSACTION_HISTORY: TransactionRow[] = [
-  { id: "TXN-8801", service: "Workstation Session (PC-04 · 3.0 hrs)", amount: 150.0, method: "Member Balance", date: "Sep 20, 2026, 4:15 PM", status: "Completed" },
-  { id: "TXN-8800", service: "Snack Order (Spanish Latte)", amount: 120.0, method: "Member Balance", date: "Sep 20, 2026, 3:30 PM", status: "Completed" },
-  { id: "TXN-8792", service: "Wallet Prepaid Top-Up", amount: 500.0, method: "Cash at Desk", date: "Sep 18, 2026, 1:10 PM", status: "Credited" },
-  { id: "TXN-8740", service: "Workstation Session (PC-02 · 2.0 hrs)", amount: 100.0, method: "Member Balance", date: "Sep 15, 2026, 10:00 AM", status: "Completed" },
-];
 
 // A café ticket as stored in public.orders (migration 008). The receipt, the
 // Billing & Transaction History row, and the staff queue all read this shape.
@@ -166,7 +160,8 @@ export default function ClientDashboard() {
   // ── Snack order billing (confirmation modal → member balance charge) ──────
   const [confirmOrderOpen, setConfirmOrderOpen] = useState(false);
   const [placedOrder, setPlacedOrder] = useState<PlacedOrder | null>(null);
-  const [transactions, setTransactions] = useState<TransactionRow[]>(TRANSACTION_HISTORY);
+  const [transactions, setTransactions] = useState<TransactionRow[]>([]);
+  const [selectedReceipt, setSelectedReceipt] = useState<ReceiptRecord | null>(null);
   const [nextTransactionSerial, setNextTransactionSerial] = useState(8802);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderError, setOrderError] = useState("");
@@ -263,27 +258,26 @@ export default function ClientDashboard() {
     };
   }, [fetchStations]);
 
-  // ── Snack order history (DB-backed, mirrors the staff order queue) ─────────
-  // Rows come from GET /api/client/orders. While migration 008 is not applied the
-  // API answers `available: false`, and the seeded demo history is left as is.
+  // Account-scoped saved PC payments and snack tickets, using Staff's receipt shape.
   const fetchCafeOrders = useCallback(async () => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      const res = await fetch(`${API_URL}/api/client/orders`, {
+      const res = await fetch(`${API_URL}/api/client/transactions`, {
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
       if (!res.ok) return;
-      const body = await res.json() as { orders?: OrderRecord[]; available?: boolean };
-      if (!body.available) return;
-      const rows = (body.orders || []).map(orderToTransactionRow);
-      setTransactions((prev) => {
-        const seen = new Set(rows.map((row) => row.id));
-        return [...rows, ...prev.filter((row) => !seen.has(row.id))];
-      });
+      const body = await res.json() as { transactions: ReceiptRecord[] };
+      setTransactions(body.transactions.map((receipt) => ({
+        id: receipt.id, service: receipt.service, amount: receipt.amount,
+        method: receipt.method === "Unpaid" ? "Pay at Counter" : receipt.method,
+        date: receipt.timestamp ? formatOrderTimestamp(receipt.timestamp) : "Not recorded",
+        status: receipt.status === "paid" || receipt.status === "completed" ? "Completed" : receipt.status,
+        receipt: receipt.status === "paid" || receipt.status === "completed" ? receipt : undefined,
+      })));
     } catch {
       // silent
     }
@@ -671,7 +665,7 @@ export default function ClientDashboard() {
 
               <div className="nodecafe-kpi-card">
                 <div className="nodecafe-kpi-label">Hourly Rate</div>
-                <div className="nodecafe-kpi-val">₱{(myStation?.rate ?? 0).toFixed(2)}</div>
+                <div className="nodecafe-kpi-val">₱{PC_SERVICE.hourlyRate.toFixed(2)}</div>
                 <div className="nodecafe-kpi-sub">
                   {myStation ? `${myStation.type} Rig Tier` : "Pick a rig at the front desk"}
                 </div>
@@ -711,7 +705,7 @@ export default function ClientDashboard() {
                     <div style={{ textAlign: "right" }}>
                       <div style={{ fontSize: 12, color: "#6a887e", fontWeight: 600 }}>Current Accrued Total</div>
                       <div style={{ fontSize: 26, fontWeight: 800, color: "#166534", marginTop: 4 }}>
-                        ₱{((sessionSeconds / 3600) * (myStation?.rate ?? 0)).toFixed(2)}
+                        ₱{((sessionSeconds / 3600) * PC_SERVICE.hourlyRate).toFixed(2)}
                       </div>
                     </div>
                   </div>
@@ -833,7 +827,7 @@ export default function ClientDashboard() {
                   </div>
                   <div className="nodecafe-service-bottom">
                     <div className="nodecafe-service-price">
-                      ₱{(stations.length ? Math.min(...stations.map((s) => s.rate)) : 0).toFixed(2)} / hr
+                      ₱{PC_SERVICE.hourlyRate.toFixed(2)} / hr
                     </div>
                     <div className="nodecafe-service-badge">
                       {availableStations > 0 ? `${availableStations} Available` : "Fully Booked"}
@@ -954,7 +948,7 @@ export default function ClientDashboard() {
                       </div>
 
                       <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", paddingTop: 8, borderTop: "1px solid #f0f5f2" }}>
-                        <span style={{ fontSize: 13, fontWeight: 700, color: "#091c17" }}>₱{st.rate}/hr</span>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: "#091c17" }}>₱{PC_SERVICE.hourlyRate}/hr</span>
                         {st.mine ? (
                           <span
                             style={{
@@ -1175,7 +1169,7 @@ export default function ClientDashboard() {
             <div className="nodecafe-page-header">
               <div>
                 <h2 className="nodecafe-page-title">Billing &amp; Transaction History</h2>
-                <p className="nodecafe-page-subtitle">Your workstation charges, prepaid top-ups, and in-café orders.</p>
+                <p className="nodecafe-page-subtitle">Your workstation payments and in-café orders. Select a completed purchase to view its receipt.</p>
               </div>
             </div>
 
@@ -1192,9 +1186,10 @@ export default function ClientDashboard() {
                   </tr>
                 </thead>
                 <tbody>
+                  {transactions.length === 0 && <tr><td colSpan={6} style={{ textAlign: "center", padding: 24 }}>No purchases to show yet.</td></tr>}
                   {transactions.map((tx) => (
-                    <tr key={tx.id}>
-                      <td><code style={{ fontWeight: 700, color: "#0b2b23" }}>{tx.id}</code></td>
+                    <tr key={tx.id} className={tx.receipt ? "receipt-history-row" : undefined} onClick={() => { if (tx.receipt) setSelectedReceipt(tx.receipt); }}>
+                      <td>{tx.receipt ? <button className="receipt-history-action" aria-label={`View receipt ${tx.id}`} onClick={(event) => { event.stopPropagation(); setSelectedReceipt(tx.receipt!); }}><Receipt size={14} /><code>{tx.id}</code></button> : <code>{tx.id}</code>}</td>
                       <td><b>{tx.service}</b></td>
                       <td><b>₱{tx.amount.toFixed(2)}</b></td>
                       <td>
@@ -1217,6 +1212,8 @@ export default function ClientDashboard() {
           </div>
         )}
       </main>
+
+      {selectedReceipt && <ReceiptDetailsModal receipt={selectedReceipt} onClose={() => setSelectedReceipt(null)} />}
 
       {/* Snack Order Confirmation & Billing Modal */}
       {confirmOrderOpen && (
