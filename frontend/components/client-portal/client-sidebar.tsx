@@ -9,6 +9,7 @@ import {
   UserRound,
   LogOut,
 } from "lucide-react";
+import { BrandMark } from "@/components/shared/brand-mark";
 
 export type ClientNavTab =
   | "home"
@@ -104,14 +105,7 @@ export function ClientSidebar({
         <div>
           {/* Brand Logo & Name */}
           <a href="/" className="client-sidebar-brand" onClick={() => onSelectTab("home")}>
-            <div className="client-sidebar-logo-badge" aria-hidden="true">
-              <svg width="22" height="22" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="2" strokeLinecap="round" strokeLinejoin="round">
-                <path d="M12 22C12 22 19 18 19 11C19 6 15 3 12 2C9 3 5 6 5 11C5 18 12 22 12 22Z" fill="rgba(199, 222, 203, 0.25)" stroke="#c7decb" />
-                <path d="M12 22V10" stroke="#c7decb" />
-                <path d="M12 14C14 13 16 11 16 9" stroke="#c7decb" />
-                <path d="M12 17C10 16 8 14 8 12" stroke="#c7decb" />
-              </svg>
-            </div>
+            <BrandMark className="client-sidebar-logo-badge" />
             <div className="client-sidebar-brand-text">
               <span className="client-sidebar-brand-title">ETHER.CAFE</span>
               <span className="client-sidebar-brand-subtitle">Client Portal</span>

@@ -2930,13 +2930,6 @@ input[aria-invalid="true"] {
 .lp-brand-mark {
   width: 34px;
   height: 34px;
-  border-radius: 8px;
-  background: var(--olive);
-  display: grid;
-  place-items: center;
-  font-size: 16px;
-  font-weight: 800;
-  color: var(--gold);
   flex-shrink: 0;
 }
 
@@ -3508,13 +3501,6 @@ input[aria-invalid="true"] {
 .lp-footer-brand-mark {
   width: 32px;
   height: 32px;
-  border-radius: 8px;
-  background: var(--gold);
-  color: var(--olive);
-  display: grid;
-  place-items: center;
-  font-size: 14px;
-  font-weight: 800;
   flex-shrink: 0;
 }
 

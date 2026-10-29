@@ -376,16 +376,7 @@
 .staff-brand-mark {
   width: 32px;
   height: 32px;
-  border-radius: 50%;
-  background: #c9a96a;
-  color: #0f3326;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-family: var(--font-playfair, Georgia, serif);
-  font-weight: 700;
-  font-size: 17px;
-  box-shadow: 0 2px 8px rgba(0, 0, 0, 0.2);
+  flex: 0 0 auto;
 }
 
 .staff-brand-title {

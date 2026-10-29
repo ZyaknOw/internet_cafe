@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useRef } from "react";
 import { PC_SERVICE } from "../../../backend/src/pc-services";
+import { BrandMark } from "@/components/shared/brand-mark";
 import Image from "next/image";
 import {
   ArrowRight,
@@ -291,7 +292,7 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
       <header className={`lp-nav-wrap${scrolled ? " lp-nav-scrolled" : ""}`} role="banner">
         <nav className="lp-nav" aria-label="Main navigation">
           <a href="#home" className="lp-brand" aria-label="INTERNET CAFE home">
-            <span className="lp-brand-mark" aria-hidden="true">I</span>
+            <BrandMark className="lp-brand-mark" />
             <span className="lp-brand-text">INTERNET CAFE</span>
           </a>
           <div className="lp-nav-links">
@@ -453,7 +454,7 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
           <div className="lp-footer-inner">
             <div className="lp-footer-brand-col">
               <div className="lp-footer-brand">
-                <span className="lp-footer-brand-mark" aria-hidden="true">I</span>
+                <BrandMark className="lp-footer-brand-mark" />
                 <span>INTERNET CAFE</span>
               </div>
               <p className="lp-footer-slogan">PC services at Internet Cafe.</p>

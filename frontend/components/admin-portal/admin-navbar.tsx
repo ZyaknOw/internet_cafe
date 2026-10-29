@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import { SunMedium, Moon, ChevronDown, LogOut, User } from "lucide-react";
+import { BrandMark } from "@/components/shared/brand-mark";
 
 interface AdminNavbarProps {
   displayName?: string;
@@ -45,9 +46,7 @@ export function AdminNavbar({ displayName = "Admin", avatarUrl, onLogout, onOpen
       {/* Left Branding */}
       <div className="admin-nav-left">
         <a href="/" style={{ display: "flex", alignItems: "center", gap: 10, textDecoration: "none" }}>
-          <div className="admin-brand-mark" aria-hidden="true">
-            E
-          </div>
+          <BrandMark className="admin-brand-mark" />
           <span className="admin-brand-title">ETHER.CAFE</span>
         </a>
         <span className="admin-brand-sep" aria-hidden="true">|</span>
