@@ -37,6 +37,7 @@ export function AdminActionModals({
   onSelectUser,
 }: ActionModalProps) {
   const [dataList, setDataList] = useState<unknown[]>([]);
+  const [stationCount, setStationCount] = useState(8);
   const [loading, setLoading] = useState(false);
 
   useEffect(() => {
@@ -64,11 +65,16 @@ export function AdminActionModals({
             const body = await res.json() as { staff: unknown[] };
             setDataList(body.staff ?? []);
           }
-        } else if (modalId === "active-sessions" || modalId === "session-history") {
+        } else if (["active-sessions", "session-history", "start-stop-session", "pc-availability"].includes(modalId)) {
           const res = await fetch(`${API_URL}/api/station-sessions/open`, { headers });
           if (res.ok) {
             const body = await res.json() as { sessions: unknown[] };
             setDataList(body.sessions ?? []);
+          }
+          const stationsRes = await fetch(`${API_URL}/api/stations`, { headers });
+          if (stationsRes.ok && modalId !== "session-history") {
+            const body = await stationsRes.json() as { stations?: { id: string }[] };
+            setStationCount(body.stations?.length ?? 8);
           }
         }
       } catch {
@@ -394,6 +400,8 @@ export function AdminActionModals({
 
   // 5. SESSION MANAGEMENT
   if (modalId === "active-sessions" || modalId === "start-stop-session" || modalId === "pc-availability") {
+    const activePcCount = dataList.length;
+    const availablePcCount = Math.max(0, stationCount - activePcCount);
     return (
       <ModalShell title="Live Station Sessions &amp; PCs" icon={Gamepad2}>
         <p style={{ fontSize: 13, color: "#5a685e", margin: "0 0 14px" }}>
@@ -402,19 +410,19 @@ export function AdminActionModals({
         <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10, marginBottom: 16 }}>
           <div style={{ background: "#f5f2eb", padding: "12px", borderRadius: 10, textAlign: "center" }}>
             <div style={{ fontSize: 11, color: "#6a796e", fontWeight: 700 }}>Total PCs</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: "#142219" }}>20</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#142219" }}>{stationCount}</div>
           </div>
           <div style={{ background: "#eaf4ed", padding: "12px", borderRadius: 10, textAlign: "center" }}>
             <div style={{ fontSize: 11, color: "#1b623a", fontWeight: 700 }}>Available</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: "#166534" }}>20</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#166534" }}>{availablePcCount}</div>
           </div>
           <div style={{ background: "#fef3c7", padding: "12px", borderRadius: 10, textAlign: "center" }}>
             <div style={{ fontSize: 11, color: "#92400e", fontWeight: 700 }}>In Use</div>
-            <div style={{ fontSize: 20, fontWeight: 700, color: "#92400e" }}>0</div>
+            <div style={{ fontSize: 20, fontWeight: 700, color: "#92400e" }}>{activePcCount}</div>
           </div>
         </div>
         <p style={{ fontSize: 12, color: "#748277", margin: 0, textAlign: "center" }}>
-          All 20 gaming and workstations are ready for customer check-in.
+          {availablePcCount} of {stationCount} PCs are ready for customer check-in.
         </p>
       </ModalShell>
     );
@@ -430,11 +438,11 @@ export function AdminActionModals({
         <div style={{ display: "grid", gap: 8 }}>
           <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "#faf8f4", borderRadius: 8 }}>
             <span>Hourly Standard Station</span>
-            <b style={{ color: "#123725" }}>₱ 50.00 / hr</b>
+            <b style={{ color: "#123725" }}>₱ 100.00 / hr</b>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "#faf8f4", borderRadius: 8 }}>
             <span>VIP Gaming Station (240Hz, RTX 4080)</span>
-            <b style={{ color: "#123725" }}>₱ 75.00 / hr</b>
+            <b style={{ color: "#123725" }}>₱ 150.00 / hr</b>
           </div>
           <div style={{ display: "flex", justifyContent: "space-between", padding: "10px 14px", background: "#faf8f4", borderRadius: 8 }}>
             <span>Stay-All-Day Pass (12 Hours)</span>

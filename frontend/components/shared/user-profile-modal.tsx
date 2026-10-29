@@ -42,15 +42,16 @@ const STATUS_COLORS: Record<string, { bg: string; color: string; label: string }
   rejected: { bg: "#fee2e2", color: "#991b1b", label: "Rejected" },
 };
 
+type Tab = "profile" | "password";
+
 interface UserProfileModalProps {
   onClose: () => void;
   targetProfile?: AccountProfile | null;
   onProfileUpdated?: (profile: AccountProfile) => void;
+  initialTab?: Tab;
 }
 
-type Tab = "profile" | "password";
-
-export function UserProfileModal({ onClose, targetProfile, onProfileUpdated }: UserProfileModalProps) {
+export function UserProfileModal({ onClose, targetProfile, onProfileUpdated, initialTab = "profile" }: UserProfileModalProps) {
   const { profile: loggedInProfile, user, refreshProfile } = useAuth();
   
   // If targetProfile is provided (e.g. admin inspecting client/staff), use it; otherwise use logged-in user
@@ -58,7 +59,7 @@ export function UserProfileModal({ onClose, targetProfile, onProfileUpdated }: U
   const currentProfile = targetProfile ?? loggedInProfile;
   const isAdminViewingOther = !isOwnProfile && loggedInProfile?.role === "admin";
 
-  const [tab, setTab] = useState<Tab>("profile");
+  const [tab, setTab] = useState<Tab>(initialTab);
 
   // Profile fields
   const [firstName, setFirstName] = useState("");

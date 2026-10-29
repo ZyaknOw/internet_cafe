@@ -135,6 +135,8 @@ interface StationSessionRecord {
   total?: number | null;
 }
 
+interface StationOption { id: string; name: string; status: string; type: "Standard" | "VIP"; rate: number }
+
 export function StaffActionModals({
   modalId,
   initialStationKey,
@@ -147,6 +149,7 @@ export function StaffActionModals({
   const [customers, setCustomers] = useState<CustomerRecord[]>([]);
   const [transferSession, setTransferSession] = useState<StationSessionRecord | null>(null);
   const [openSessions, setOpenSessions] = useState<StationSessionRecord[]>([]);
+  const [stationOptions, setStationOptions] = useState<StationOption[]>([]);
   const [loading, setLoading] = useState(false);
   const [feedbackMessage, setFeedbackMessage] = useState<{ text: string; type: "success" | "error" } | null>(null);
 
@@ -182,6 +185,12 @@ export function StaffActionModals({
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       };
+
+      const stationRes = await fetch(`${API_URL}/api/stations`, { headers });
+      if (stationRes.ok) {
+        const stationBody = await stationRes.json() as { stations?: StationOption[] };
+        setStationOptions(stationBody.stations || []);
+      }
 
       // Fetch customers for registration, sessions, and directory
       const custRes = await fetch(`${API_URL}/api/customers`, { headers });
@@ -463,12 +472,13 @@ export function StaffActionModals({
     modalId === "active-sessions" ||
     modalId === "session-history"
   ) {
-    const activePcKeys = openSessions.map((s) => s.station_key);
-    const availablePcList = Array.from({ length: 8 }, (_, i) => {
-      const num = i + 1;
-      const key = `PC-${num.toString().padStart(2, "0")}`;
-      return { key, inUse: activePcKeys.includes(key) };
-    });
+    const availablePcList = stationOptions.map((station) => {
+      const num = Number(station.name.match(/^PC[ -]*0*(\d+)/i)?.[1] || 0);
+      const key = `PC-${String(num).padStart(2, "0")}`;
+      const inUse = openSessions.some((session) => Number(session.station_key.replace(/\D/g, "")) === num);
+      return { key, label: station.name, inUse, type: station.type, rate: station.rate };
+    }).filter((station) => station.key !== "PC-00");
+    const selectedPc = availablePcList.find((station) => station.key === selectedStationKey);
 
     return (
       <ModalShell
@@ -571,7 +581,11 @@ export function StaffActionModals({
                 </label>
                 <select
                   value={selectedStationKey}
-                  onChange={(e) => setSelectedStationKey(e.target.value)}
+                  onChange={(e) => {
+                    setSelectedStationKey(e.target.value);
+                    const nextStation = availablePcList.find((station) => station.key === e.target.value);
+                    if (nextStation) setSelectedRate(nextStation.rate);
+                  }}
                   style={{
                     width: "100%",
                     padding: "9px 12px",
@@ -584,7 +598,7 @@ export function StaffActionModals({
                 >
                   {availablePcList.map((pc) => (
                     <option key={pc.key} value={pc.key} disabled={pc.inUse}>
-                      {pc.key} {pc.inUse ? "(In Use)" : "— Ready"}
+                      {pc.label} {pc.inUse ? "(In Use)" : "— Ready"}
                     </option>
                   ))}
                 </select>
@@ -595,8 +609,8 @@ export function StaffActionModals({
                   Hourly Rate Tier
                 </label>
                 <select
-                  value={selectedRate}
-                  onChange={(e) => setSelectedRate(Number(e.target.value))}
+                  value={selectedPc?.rate ?? selectedRate}
+                  disabled
                   style={{
                     width: "100%",
                     padding: "9px 12px",
@@ -607,8 +621,8 @@ export function StaffActionModals({
                     outline: "none",
                   }}
                 >
-                  <option value={50}>Standard Gaming (₱50.00 / hr)</option>
-                  <option value={75}>VIP RTX 4080 (₱75.00 / hr)</option>
+                  <option value={100}>Standard Gaming (₱100.00 / hr)</option>
+                  <option value={150}>VIP Gaming (₱150.00 / hr)</option>
                 </select>
               </div>
             </div>
@@ -1184,7 +1198,7 @@ export function StaffActionModals({
       >
         <div style={{ marginBottom: 14 }}>
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 8 }}>
-            <span style={{ fontSize: 12.5, fontWeight: 700, color: "#142219" }}>All 20 PC Gaming &amp; Workstations</span>
+            <span style={{ fontSize: 12.5, fontWeight: 700, color: "#142219" }}>All {stationOptions.length} PC Gaming &amp; Workstations</span>
             <div style={{ display: "flex", gap: 10, fontSize: 11, color: "#6a796e" }}>
               <span style={{ display: "flex", alignItems: "center", gap: 4 }}>
                 <span style={{ width: 8, height: 8, borderRadius: "50%", background: "#22c55e" }} /> Available
@@ -1196,10 +1210,10 @@ export function StaffActionModals({
           </div>
 
           <div style={{ display: "grid", gridTemplateColumns: "repeat(5, 1fr)", gap: 6 }}>
-            {Array.from({ length: 8 }, (_, i) => {
-              const num = i + 1;
-              const key = `PC-${num.toString().padStart(2, "0")}`;
-              const activeSession = openSessions.find((s) => s.station_key === key);
+            {stationOptions.map((station) => {
+              const num = Number(station.name.match(/^PC[ -]*0*(\d+)/i)?.[1] || 0);
+              const key = `PC-${String(num).padStart(2, "0")}`;
+              const activeSession = openSessions.find((s) => Number(s.station_key.replace(/\D/g, "")) === num);
               const inUse = Boolean(activeSession);
 
               return (
@@ -1222,7 +1236,7 @@ export function StaffActionModals({
                     cursor: "pointer",
                   }}
                 >
-                  <b style={{ fontSize: 12, color: "#142219" }}>{key}</b>
+                  <b style={{ fontSize: 12, color: "#142219" }}>{station.name}</b>
                   <div style={{ fontSize: 10, color: inUse ? "#92400e" : "#166534", fontWeight: 700, marginTop: 2 }}>
                     {inUse ? "IN USE" : "READY"}
                   </div>

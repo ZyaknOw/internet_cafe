@@ -299,7 +299,6 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
             <a href="#pcs">PCs</a>
             <a href="#services">Services</a>
             <a href="#rates">Rates</a>
-            <a href="#snacks">Snacks</a>
           </div>
           <div className="lp-nav-actions">
             <button className="lp-portal-btn" onClick={() => onShowAuth()} aria-label="Open portal login">
@@ -320,7 +319,6 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
             <a href="#pcs" onClick={() => setMobileMenuOpen(false)}>PCs</a>
             <a href="#rates" onClick={() => setMobileMenuOpen(false)}>Rates</a>
             <a href="#services" onClick={() => setMobileMenuOpen(false)}>Services</a>
-            <a href="#snacks" onClick={() => setMobileMenuOpen(false)}>Snacks</a>
             <button className="lp-portal-btn lp-portal-btn--mobile" onClick={() => { setMobileMenuOpen(false); onShowAuth(); }}>
               PORTAL LOGIN
             </button>
@@ -419,17 +417,14 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
                   Start Your Session <ArrowRight size={16} aria-hidden="true" />
                 </button>
               </article>
-              <article id="snacks" className="lp-pc-card lp-pc-card--snacks" aria-labelledby="snacks-heading">
-                <div className="lp-snack-photos">
-                  <Image src="/images/snacks/crackers.png" alt="A packet of crackers" fill sizes="(max-width: 768px) 70vw, 30vw" className="lp-snack-photo-main" />
-                  <div className="lp-snack-photo-inset">
-                    <Image src="/images/snacks/stick-crackers.png" alt="A packet of stick crackers" fill sizes="(max-width: 768px) 30vw, 15vw" />
-                  </div>
+              <article className="lp-pc-card lp-pc-card--ad" aria-labelledby="pc-ad-heading">
+                <div className="lp-pc-ad-photo">
+                  <Image src="/images/dashboard/gaming-setup.jpg" alt="Gaming PC station with keyboard, mouse, and headset" fill sizes="(max-width: 768px) 90vw, 45vw" />
                 </div>
-                <div className="lp-snack-copy">
-                  <span className="lp-eyebrow">ON THE SIDE</span>
-                  <h3 id="snacks-heading">Fuel your session.</h3>
-                  <p>Crackers and stick crackers for a little boost between tasks. Purchased separately, always optional.</p>
+                <div className="lp-pc-ad-copy">
+                  <span className="lp-eyebrow">YOUR NEXT SESSION</span>
+                  <h3 id="pc-ad-heading">Ready when you are.</h3>
+                  <p>Settle into a high-performance PC station for gaming, schoolwork, and everything in between.</p>
                 </div>
               </article>
             </div>
@@ -471,7 +466,6 @@ export function EtherLanding({ onShowAuth }: { onShowAuth: () => void }) {
                 <li><a href="#pcs">PCs</a></li>
                 <li><a href="#rates">Rates</a></li>
                 <li><a href="#services">Services</a></li>
-                <li><a href="#snacks">Snacks</a></li>
                 <li>
                   <button className="lp-footer-portal-link" onClick={() => onShowAuth()}>
                     Portal Login

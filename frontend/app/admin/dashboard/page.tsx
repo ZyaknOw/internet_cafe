@@ -18,7 +18,7 @@ import {
   ChevronRight,
   User,
   LogOut,
-  Settings,
+  KeyRound,
   Plus,
   ArrowRight,
   Laptop,
@@ -36,6 +36,7 @@ import {
   Play,
   Square,
   ShoppingBag,
+  Pencil,
 } from "lucide-react";
 
 interface AdminOverviewData {
@@ -83,27 +84,30 @@ interface AdminTransaction {
   status: string;
 }
 
-interface AdminTransactionSummary {
-  grossSales: number;
-  stationSales: number;
-  stationHours: number;
-  cafeSales: number;
-  cafeOrders: number;
+interface AdminReportSummary {
+  totalRevenue: number;
+  sessionCount: number;
+  totalHours: number;
 }
 
-const EMPTY_TRANSACTION_SUMMARY: AdminTransactionSummary = {
-  grossSales: 0,
-  stationSales: 0,
-  stationHours: 0,
-  cafeSales: 0,
-  cafeOrders: 0,
-};
+type ReportPeriod = "daily" | "monthly" | "yearly";
+
+const EMPTY_REPORT_SUMMARY: AdminReportSummary = { totalRevenue: 0, sessionCount: 0, totalHours: 0 };
+
+function manilaToday() {
+  const parts = new Intl.DateTimeFormat("en", {
+    timeZone: "Asia/Manila", year: "numeric", month: "2-digit", day: "2-digit",
+  }).formatToParts(new Date());
+  const part = (type: string) => parts.find((item) => item.type === type)?.value ?? "";
+  return `${part("year")}-${part("month")}-${part("day")}`;
+}
 
 function formatTransactionTime(value: string | null) {
   if (!value) return "—";
   const date = new Date(value);
   if (Number.isNaN(date.getTime())) return "—";
   return date.toLocaleString("en-US", {
+    timeZone: "Asia/Manila",
     month: "short",
     day: "numeric",
     hour: "numeric",
@@ -127,6 +131,14 @@ interface StationItem {
   startedAt?: string;
 }
 
+interface StationEditorState {
+  id?: string;
+  name: string;
+  type: "Standard" | "VIP";
+  rate: number;
+  specs: string;
+}
+
 const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
 
 const DEFAULT_STATIONS: StationItem[] = Array.from({ length: 8 }, (_, i) => {
@@ -136,7 +148,7 @@ const DEFAULT_STATIONS: StationItem[] = Array.from({ length: 8 }, (_, i) => {
     id: `pc-${num}`,
     name: `PC-${num}`,
     type: isVip ? "VIP" : "Standard",
-    rate: 50,
+    rate: 100,
     specs: isVip ? "240Hz, RTX 4080, Mechanical Keyboard" : "165Hz, RTX 4060, Standard Rig",
     status: "available",
     customerName: undefined,
@@ -161,7 +173,9 @@ export default function AdminDashboard() {
 
   const [dateStr, setDateStr] = useState("TUESDAY · SEPTEMBER 22, 2026");
   const [greeting, setGreeting] = useState("Good evening, Admin.");
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [profileInitialTab, setProfileInitialTab] = useState<"profile" | "password">("profile");
 
   // Clients View States
   const [clients, setClients] = useState<ClientUser[]>([]);
@@ -170,12 +184,18 @@ export default function AdminDashboard() {
 
   // Stations State
   const [stations, setStations] = useState<StationItem[]>(DEFAULT_STATIONS);
+  const [stationEditor, setStationEditor] = useState<StationEditorState | null>(null);
+  const [stationSaving, setStationSaving] = useState(false);
+  const [stationEditorError, setStationEditorError] = useState("");
 
-  // Transactions tab — café orders and ended station checkouts.
+  // Reports tab — PC session revenue by Manila calendar period.
   const [transactions, setTransactions] = useState<AdminTransaction[]>([]);
   const [transactionSearch, setTransactionSearch] = useState("");
-  const [transactionSummary, setTransactionSummary] = useState<AdminTransactionSummary>(EMPTY_TRANSACTION_SUMMARY);
+  const [reportPeriod, setReportPeriod] = useState<ReportPeriod>("daily");
+  const [reportDate, setReportDate] = useState(manilaToday);
+  const [transactionSummary, setTransactionSummary] = useState<AdminReportSummary>(EMPTY_REPORT_SUMMARY);
   const [transactionsLoaded, setTransactionsLoaded] = useState(false);
+  const [transactionsError, setTransactionsError] = useState("");
 
   // Pending queue items (loaded from the database — no mock rows)
   const [pendingList, setPendingList] = useState<PendingItem[]>([]);
@@ -222,6 +242,13 @@ export default function AdminDashboard() {
         "Content-Type": "application/json",
         ...(token ? { Authorization: `Bearer ${token}` } : {}),
       };
+
+      const stationRes = await fetch(`${API_URL}/api/stations`, { headers });
+      let stationInventory: StationItem[] | null = null;
+      if (stationRes.ok) {
+        const stationData = await stationRes.json() as { stations?: StationItem[] };
+        stationInventory = stationData.stations || [];
+      }
 
       const res = await fetch(`${API_URL}/api/admin/overview`, { headers });
       if (res.ok) {
@@ -278,11 +305,12 @@ export default function AdminDashboard() {
           }
         }
         setStations((prev) =>
-          prev.map((st) => {
+          (stationInventory ?? prev).map((st) => {
             const open =
               openMap.get(st.name.toUpperCase()) ||
               openMap.get(st.id.toUpperCase()) ||
-              openMap.get(st.name.replace(/\D/g, ""));
+              openMap.get(st.name.replace(/\D/g, "")) ||
+              openSessions.find((session) => String(session.station_key || "").replace(/\D/g, "") === st.name.replace(/\D/g, ""));
             if (open) {
               return {
                 ...st,
@@ -307,28 +335,68 @@ export default function AdminDashboard() {
     }
   }, []);
 
+  const saveStation = async (event: React.FormEvent<HTMLFormElement>) => {
+    event.preventDefault();
+    if (!stationEditor || stationSaving) return;
+    setStationSaving(true);
+    setStationEditorError("");
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const response = await fetch(`${API_URL}/api/admin/stations${stationEditor.id ? `/${stationEditor.id}` : ""}`, {
+        method: stationEditor.id ? "PATCH" : "POST",
+        headers: {
+          "Content-Type": "application/json",
+          ...(session?.access_token ? { Authorization: `Bearer ${session.access_token}` } : {}),
+        },
+        body: JSON.stringify({
+          name: stationEditor.name,
+          type: stationEditor.type.toLowerCase(),
+          rate: Number(stationEditor.rate),
+          specs: stationEditor.specs,
+        }),
+      });
+      const result = await response.json().catch(() => ({})) as { error?: string };
+      if (!response.ok) throw new Error(result.error || "Could not save this PC station.");
+      setStationEditor(null);
+      await fetchOverview();
+    } catch (error) {
+      setStationEditorError(error instanceof Error ? error.message : "Could not save this PC station.");
+    } finally {
+      setStationSaving(false);
+    }
+  };
+
   const fetchTransactions = useCallback(async () => {
+    setTransactionsLoaded(false);
+    setTransactionsError("");
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
-      const res = await fetch(`${API_URL}/api/transactions`, {
+      const params = new URLSearchParams({ period: reportPeriod, date: reportDate });
+      const res = await fetch(`${API_URL}/api/admin/reports?${params}`, {
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
-      if (!res.ok) return;
+      if (!res.ok) {
+        const body = await res.json().catch(() => ({}));
+        throw new Error(body.error || "Could not load this report.");
+      }
       const body = await res.json() as {
         transactions?: AdminTransaction[];
-        summary?: AdminTransactionSummary;
+        summary?: AdminReportSummary;
       };
       setTransactions(body.transactions || []);
-      setTransactionSummary(body.summary || EMPTY_TRANSACTION_SUMMARY);
+      setTransactionSummary(body.summary || EMPTY_REPORT_SUMMARY);
+    } catch (error) {
+      setTransactions([]);
+      setTransactionSummary(EMPTY_REPORT_SUMMARY);
+      setTransactionsError(error instanceof Error ? error.message : "Could not load this report.");
+    } finally {
       setTransactionsLoaded(true);
-    } catch {
-      // silent
     }
-  }, []);
+  }, [reportPeriod, reportDate]);
 
   useEffect(() => {
     void fetchOverview();
@@ -378,13 +446,12 @@ export default function AdminDashboard() {
 
   const transactionQuery = transactionSearch.trim().toLowerCase();
   const paidTransactions = transactions
-    .filter((tx) => tx.status === "paid" || tx.status === "completed")
     .filter((tx) => {
       if (!transactionQuery) return true;
       return [tx.id, tx.customer, tx.service, tx.method].some((value) => value.toLowerCase().includes(transactionQuery));
     })
     .sort((a, b) => (b.timestamp ? new Date(b.timestamp).getTime() : 0) - (a.timestamp ? new Date(a.timestamp).getTime() : 0));
-  const visibleTransactions = transactionQuery ? paidTransactions : paidTransactions.slice(0, 10);
+  const visibleTransactions = paidTransactions;
 
   // Handle inline approvals
   const handleApproveItem = async (item: PendingItem) => {
@@ -496,7 +563,7 @@ export default function AdminDashboard() {
 
             <button
               className={`nodecafe-nav-item ${activeTab === "clients" ? "active" : ""}`}
-              onClick={() => setActiveTab("clients")}
+              onClick={() => setShowNotificationModal(true)}
             >
               <Users size={17} />
               <span>Clients</span>
@@ -518,7 +585,7 @@ export default function AdminDashboard() {
               }}
             >
               <Receipt size={17} />
-              <span>Transactions</span>
+              <span>Reports</span>
             </button>
 
           </nav>
@@ -553,16 +620,17 @@ export default function AdminDashboard() {
               title="View pending approval notifications"
               aria-label="Notifications"
             >
-              <Bell size={17} />
+              <Bell size={19} strokeWidth={2.5} color="#123725" aria-hidden="true" style={{ display: "block", flexShrink: 0, zIndex: 1 }} />
               <span className="nodecafe-notif-badge">{pendingList.length}</span>
             </button>
 
-            {/* Profile Avatar Pill with Dropdown */}
+            {/* Account actions open in a modal */}
             <div style={{ position: "relative" }}>
               <button
                 className="nodecafe-user-pill"
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                aria-expanded={showProfileMenu}
+                onClick={() => setShowAccountModal(true)}
+                aria-haspopup="dialog"
+                aria-expanded={showAccountModal}
                 aria-label="Admin account menu"
               >
                 <div className="nodecafe-user-avatar" aria-hidden="true">
@@ -579,45 +647,35 @@ export default function AdminDashboard() {
                 <span className="nodecafe-user-label">Admin account</span>
               </button>
 
-              {showProfileMenu && (
-                <div className="nodecafe-user-dropdown" role="menu">
-                  <button
-                    className="nodecafe-dropdown-item"
-                    onClick={() => {
-                      setShowProfileMenu(false);
-                      setSelectedUserProfile(null);
-                      setShowProfileModal(true);
-                    }}
-                  >
-                    <User size={15} />
-                    <span>My Profile</span>
-                  </button>
-                  <button
-                    className="nodecafe-dropdown-item"
-                    onClick={() => {
-                      setShowProfileMenu(false);
-                      setActiveActionModal("reset-credentials");
-                    }}
-                  >
-                    <Settings size={15} />
-                    <span>Settings &amp; Security</span>
-                  </button>
-                  <div style={{ height: 1, background: "#edf3f0", margin: "4px 0" }} />
-                  <button
-                    className="nodecafe-dropdown-item danger"
-                    onClick={() => {
-                      setShowProfileMenu(false);
-                      void logout();
-                    }}
-                  >
-                    <LogOut size={15} />
-                    <span>Sign Out</span>
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         </header>
+
+        {showNotificationModal && (
+          <div role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowNotificationModal(false); }} style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(8, 24, 18, .48)", display: "grid", placeItems: "center", padding: 20 }}>
+            <section role="dialog" aria-modal="true" aria-labelledby="admin-notifications-title" style={{ width: "min(100%, 480px)", background: "#fff", borderRadius: 16, padding: 22, boxShadow: "0 24px 70px rgba(0,0,0,.2)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 16 }}>
+                <div><h2 id="admin-notifications-title" style={{ margin: 0, color: "#123725", fontSize: 19 }}>Notifications</h2><p style={{ margin: "5px 0 0", color: "#6a887e", fontSize: 13 }}>Pending account approvals</p></div>
+                <button type="button" aria-label="Close notifications" onClick={() => setShowNotificationModal(false)} style={{ width: 32, height: 32, border: "1px solid #dce7e0", borderRadius: 8, background: "#fff", color: "#355b49", fontSize: 20, lineHeight: 1, cursor: "pointer" }}>×</button>
+              </div>
+              {pendingList.length ? <div style={{ display: "grid", gap: 9, maxHeight: 360, overflowY: "auto" }}>{pendingList.map((item) => <button key={item.id} type="button" onClick={() => { setShowNotificationModal(false); setActiveTab("clients"); }} style={{ textAlign: "left", border: "1px solid #e1ebe5", borderRadius: 10, background: "#f8fbf8", padding: "12px 14px", cursor: "pointer" }}><b style={{ display: "block", color: "#123725", fontSize: 13 }}>{item.name}</b><span style={{ display: "block", marginTop: 4, color: "#6a887e", fontSize: 12 }}>{item.meta}</span></button>)}</div> : <div style={{ padding: "25px 12px", textAlign: "center", color: "#6a887e", background: "#f8fbf8", borderRadius: 10, fontSize: 13 }}>You&apos;re all caught up. No pending notifications.</div>}
+              <button type="button" onClick={() => { setShowNotificationModal(false); setActiveTab("clients"); }} style={{ marginTop: 14, width: "100%", padding: 11, border: 0, borderRadius: 9, background: "#123725", color: "#fff", fontWeight: 700, cursor: "pointer" }}>Review account requests</button>
+            </section>
+          </div>
+        )}
+
+        {showAccountModal && (
+          <div role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowAccountModal(false); }} style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(8, 24, 18, .48)", display: "grid", placeItems: "center", padding: 20 }}>
+            <section role="dialog" aria-modal="true" aria-labelledby="admin-account-title" style={{ width: "min(100%, 400px)", background: "#fff", borderRadius: 16, padding: 22, boxShadow: "0 24px 70px rgba(0,0,0,.2)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}><div><h2 id="admin-account-title" style={{ margin: 0, color: "#123725", fontSize: 19 }}>Admin account</h2><p style={{ margin: "5px 0 0", color: "#6a887e", fontSize: 13 }}>{displayName}</p></div><button type="button" aria-label="Close account" onClick={() => setShowAccountModal(false)} style={{ width: 32, height: 32, border: "1px solid #dce7e0", borderRadius: 8, background: "#fff", color: "#355b49", fontSize: 20, lineHeight: 1, cursor: "pointer" }}>×</button></div>
+              <div style={{ display: "grid", gap: 8 }}>
+                <button type="button" onClick={() => { setShowAccountModal(false); setSelectedUserProfile(null); setProfileInitialTab("profile"); setShowProfileModal(true); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, border: "1px solid #e1ebe5", borderRadius: 9, background: "#fff", color: "#123725", fontWeight: 600, cursor: "pointer" }}><User size={17} /> My Profile</button>
+                <button type="button" onClick={() => { setShowAccountModal(false); setSelectedUserProfile(null); setProfileInitialTab("password"); setShowProfileModal(true); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, border: "1px solid #e1ebe5", borderRadius: 9, background: "#fff", color: "#123725", fontWeight: 600, cursor: "pointer" }}><KeyRound size={17} /> Change Password</button>
+                <button type="button" onClick={() => { setShowAccountModal(false); void logout(); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, border: "1px solid #f0d8d8", borderRadius: 9, background: "#fffafa", color: "#a33131", fontWeight: 600, cursor: "pointer" }}><LogOut size={17} /> Sign Out</button>
+              </div>
+            </section>
+          </div>
+        )}
 
         {/* -------------------------------------------------------------
             TAB 1: OVERVIEW DASHBOARD
@@ -760,7 +818,7 @@ export default function AdminDashboard() {
                     </div>
                   </div>
                   <div className="nodecafe-service-bottom">
-                    <div className="nodecafe-service-price">₱{stations[0]?.rate ?? 50} / hr</div>
+                    <div className="nodecafe-service-price">₱{stations[0]?.rate ?? 100} / hr</div>
                     <div className="nodecafe-service-badge">
                       {stations.filter((station) => station.status === "available").length} available
                     </div>
@@ -927,14 +985,28 @@ export default function AdminDashboard() {
                   Live workstation status, VIP hardware rigs, and session control.
                 </p>
               </div>
-              <button
-                className="nodecafe-btn-primary"
-                style={{ width: "auto", padding: "10px 18px" }}
-                onClick={() => setActiveActionModal("hourly-rates")}
-              >
-                <Coins size={15} />
-                <span>Adjust Station Rates</span>
-              </button>
+              <div style={{ display: "flex", gap: 10, flexWrap: "wrap" }}>
+                <button
+                  className="nodecafe-btn-primary"
+                  style={{ width: "auto", padding: "10px 18px" }}
+                  onClick={() => {
+                    const nextNumber = Math.max(0, ...stations.map((station) => Number(station.name.match(/^PC[ -]*0*(\d+)/i)?.[1] || 0))) + 1;
+                    setStationEditor({ name: `PC-${String(nextNumber).padStart(2, "0")}`, type: "Standard", rate: 100, specs: "165Hz, RTX 4060, Standard Rig" });
+                    setStationEditorError("");
+                  }}
+                >
+                  <Plus size={15} />
+                  <span>Add PC</span>
+                </button>
+                <button
+                  className="nodecafe-btn-primary"
+                  style={{ width: "auto", padding: "10px 18px" }}
+                  onClick={() => setActiveActionModal("hourly-rates")}
+                >
+                  <Coins size={15} />
+                  <span>Adjust Station Rates</span>
+                </button>
+              </div>
             </div>
 
             {/* Quick Metrics */}
@@ -989,8 +1061,21 @@ export default function AdminDashboard() {
                           <Laptop size={16} color={st.status === "in-use" ? "#dc2626" : "#166534"} />
                           <b style={{ color: "#091c17", fontSize: 14.5 }}>{st.name}</b>
                         </div>
-                        <span
-                          style={{
+                        <div style={{ display: "flex", alignItems: "center", gap: 6 }}>
+                          <button
+                            type="button"
+                            aria-label={`Edit ${st.name}`}
+                            title={st.status === "available" ? `Edit ${st.name}` : "End this session before editing the PC"}
+                            disabled={st.status !== "available"}
+                            onClick={(event) => {
+                              event.stopPropagation();
+                              setStationEditor({ id: st.id, name: st.name, type: st.type, rate: st.rate, specs: st.specs });
+                              setStationEditorError("");
+                            }}
+                            style={{ border: "1px solid #dce7e0", background: "#fff", color: "#355b49", borderRadius: 6, padding: 4, display: "grid", placeItems: "center", cursor: st.status === "available" ? "pointer" : "not-allowed", opacity: st.status === "available" ? 1 : 0.45 }}
+                          ><Pencil size={12} /></button>
+                          <span
+                            style={{
                             fontSize: 10,
                             fontWeight: 800,
                             padding: "2px 6px",
@@ -999,8 +1084,9 @@ export default function AdminDashboard() {
                             color: st.type === "VIP" ? "#854d0e" : "#133b2e",
                           }}
                         >
-                          {st.type}
-                        </span>
+                            {st.type}
+                          </span>
+                        </div>
                       </div>
 
                       <div style={{ fontSize: 11.5, color: "#6a887e", marginBottom: 8, lineHeight: 1.3 }}>
@@ -1033,9 +1119,9 @@ export default function AdminDashboard() {
             {/* Header */}
             <div className="nodecafe-page-header">
               <div>
-                <h2 className="nodecafe-page-title">Transactions &amp; Audit Trail</h2>
+                <h2 className="nodecafe-page-title">PC Revenue Reports</h2>
                 <p className="nodecafe-page-subtitle">
-                  Search completed café orders and station checkouts by client, service, or payment method.
+                  Review PC session revenue by day, month, or year, then search the matching records.
                 </p>
               </div>
               <button
@@ -1048,47 +1134,71 @@ export default function AdminDashboard() {
               </button>
             </div>
 
-            <div className="nodecafe-search-box" style={{ width: "100%", maxWidth: 440 }}>
-              <Search size={16} />
-              <input
-                type="search"
-                placeholder="Search completed payments or client name..."
-                value={transactionSearch}
-                onChange={(event) => setTransactionSearch(event.target.value)}
-                aria-label="Search completed payments"
-              />
+            <div className="admin-report-controls">
+              <div className="admin-report-periods" role="group" aria-label="Report period">
+                {(["daily", "monthly", "yearly"] as const).map((period) => (
+                  <button
+                    key={period}
+                    type="button"
+                    className={`admin-report-period${reportPeriod === period ? " active" : ""}`}
+                    aria-pressed={reportPeriod === period}
+                    onClick={() => setReportPeriod(period)}
+                  >
+                    {period.charAt(0).toUpperCase() + period.slice(1)}
+                  </button>
+                ))}
+              </div>
+              <label className="admin-report-date">
+                <span>{reportPeriod === "daily" ? "Report date" : reportPeriod === "monthly" ? "Choose month" : "Choose a date in the year"}</span>
+                <input
+                  type={reportPeriod === "monthly" ? "month" : "date"}
+                  value={reportPeriod === "monthly" ? reportDate.slice(0, 7) : reportDate}
+                  onChange={(event) => {
+                    const value = event.target.value;
+                    if (!value) return;
+                    setReportDate(reportPeriod === "monthly" ? `${value}-01` : value);
+                  }}
+                  aria-label={reportPeriod === "daily" ? "Choose report date" : reportPeriod === "monthly" ? "Choose report month" : "Choose a date in the report year"}
+                />
+              </label>
+              <div className="nodecafe-search-box admin-report-search">
+                <Search size={16} />
+                <input
+                  type="search"
+                  placeholder="Search PC sessions or customers..."
+                  value={transactionSearch}
+                  onChange={(event) => setTransactionSearch(event.target.value)}
+                  aria-label="Search report rows"
+                />
+              </div>
             </div>
 
-            {/* Financial Summary Cards */}
-            <div className="nodecafe-stat-mini-grid">
+            <div className="nodecafe-stat-mini-grid admin-report-summary">
               <div className="nodecafe-stat-mini-card">
-                <div style={{ fontSize: 12, color: "#6a887e", fontWeight: 600 }}>Today&apos;s Gross Sales</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: "#091c17", marginTop: 4 }}>₱{transactionSummary.grossSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                <div style={{ fontSize: 11, color: "#166534", fontWeight: 600, marginTop: 2 }}>Live café + station sales</div>
+                <div style={{ fontSize: 12, color: "#6a887e", fontWeight: 600 }}>PC revenue</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "#091c17", marginTop: 4 }}>₱{transactionSummary.totalRevenue.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
+                <div style={{ fontSize: 11, color: "#166534", fontWeight: 600, marginTop: 2 }}>{reportPeriod[0].toUpperCase() + reportPeriod.slice(1)} report</div>
               </div>
               <div className="nodecafe-stat-mini-card">
-                <div style={{ fontSize: 12, color: "#6a887e", fontWeight: 600 }}>Station Hours Billed</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: "#091c17", marginTop: 4 }}>₱{transactionSummary.stationSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                <div style={{ fontSize: 11, color: "#6a887e", marginTop: 2 }}>{transactionSummary.stationHours.toFixed(1)} billable hours</div>
+                <div style={{ fontSize: 12, color: "#6a887e", fontWeight: 600 }}>Completed PC sessions</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "#091c17", marginTop: 4 }}>{transactionSummary.sessionCount.toLocaleString()}</div>
+                <div style={{ fontSize: 11, color: "#6a887e", marginTop: 2 }}>In the selected period</div>
               </div>
               <div className="nodecafe-stat-mini-card">
-                <div style={{ fontSize: 12, color: "#6a887e", fontWeight: 600 }}>Snack &amp; Food Sales</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: "#091c17", marginTop: 4 }}>₱{transactionSummary.cafeSales.toLocaleString(undefined, { minimumFractionDigits: 2, maximumFractionDigits: 2 })}</div>
-                <div style={{ fontSize: 11, color: "#6a887e", marginTop: 2 }}>{transactionSummary.cafeOrders} orders completed</div>
-              </div>
-              <div className="nodecafe-stat-mini-card">
-                <div style={{ fontSize: 12, color: "#6a887e", fontWeight: 600 }}>Open tickets</div>
-                <div style={{ fontSize: 24, fontWeight: 800, color: "#091c17", marginTop: 4 }}>{transactions.filter((tx) => tx.status !== "paid" && tx.status !== "completed" && tx.status !== "cancelled").length}</div>
-                <div style={{ fontSize: 11, color: "#6a887e", marginTop: 2 }}>Updates as orders come in</div>
+                <div style={{ fontSize: 12, color: "#6a887e", fontWeight: 600 }}>PC hours billed</div>
+                <div style={{ fontSize: 24, fontWeight: 800, color: "#091c17", marginTop: 4 }}>{transactionSummary.totalHours.toFixed(1)}</div>
+                <div style={{ fontSize: 11, color: "#6a887e", marginTop: 2 }}>Billable hours in period</div>
               </div>
             </div>
+
+            {transactionsError && <p className="admin-report-error" role="alert">{transactionsError}</p>}
 
             {/* Recent transactions by default; search to find older client purchases. */}
             <div className="nodecafe-table-card">
               <table className="nodecafe-table">
                 <thead>
                   <tr>
-                    <th>Receipt Code</th>
+                    <th>Session Code</th>
                     <th>Customer Name</th>
                     <th>Service Category</th>
                     <th>Amount</th>
@@ -1102,7 +1212,7 @@ export default function AdminDashboard() {
                     <tr>
                       <td colSpan={7} style={{ color: "#6a887e", padding: "28px 16px", textAlign: "center" }}>
                         {transactionsLoaded
-                          ? (transactionQuery ? "No completed payments match your search." : "No recent completed payments yet.")
+                          ? (transactionQuery ? "No PC sessions match your search." : "No completed PC sessions in this period.")
                           : "Loading transactions…"}
                       </td>
                     </tr>
@@ -1254,6 +1364,38 @@ export default function AdminDashboard() {
         />
       )}
 
+      {stationEditor && (
+        <div role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget && !stationSaving) setStationEditor(null); }} style={{ position: "fixed", inset: 0, zIndex: 1100, background: "rgba(8, 24, 18, .48)", display: "grid", placeItems: "center", padding: 20 }}>
+          <form onSubmit={saveStation} style={{ width: "min(100%, 460px)", background: "#fff", borderRadius: 16, padding: 24, boxShadow: "0 24px 70px rgba(0,0,0,.2)", display: "grid", gap: 14 }}>
+            <div>
+              <h3 style={{ margin: 0, color: "#091c17", fontSize: 19 }}>{stationEditor.id ? "Edit PC Station" : "Add PC Station"}</h3>
+              <p style={{ margin: "6px 0 0", color: "#6a887e", fontSize: 13 }}>Keep the PC number, then add a short label after a dash if you like (for example, PC-09 - Gaming). Standard is ₱100/hr; VIP is ₱150/hr.</p>
+            </div>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 700, color: "#355b49" }}>PC Name
+              <input required maxLength={60} value={stationEditor.name} onChange={(event) => setStationEditor({ ...stationEditor, name: event.target.value })} placeholder="PC-09 or PC-09 - Gaming" style={{ width: "100%", padding: "10px 12px", border: "1px solid #dce7e0", borderRadius: 8, color: "#091c17" }} />
+            </label>
+            <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: 12 }}>
+              <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 700, color: "#355b49" }}>Type
+                <select value={stationEditor.type} onChange={(event) => { const type = event.target.value as StationEditorState["type"]; setStationEditor({ ...stationEditor, type, rate: type === "VIP" ? 150 : 100 }); }} style={{ padding: "10px 12px", border: "1px solid #dce7e0", borderRadius: 8, background: "#fff", color: "#091c17" }}>
+                  <option value="Standard">Standard</option><option value="VIP">VIP</option>
+                </select>
+              </label>
+              <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 700, color: "#355b49" }}>Hourly Rate (₱)
+                <input required type="number" value={stationEditor.type === "VIP" ? 150 : 100} readOnly style={{ padding: "10px 12px", border: "1px solid #dce7e0", borderRadius: 8, color: "#091c17", background: "#f6f8f6" }} />
+              </label>
+            </div>
+            <label style={{ display: "grid", gap: 6, fontSize: 12, fontWeight: 700, color: "#355b49" }}>Specs / Description
+              <input maxLength={240} value={stationEditor.specs} onChange={(event) => setStationEditor({ ...stationEditor, specs: event.target.value })} placeholder="165Hz, RTX 4060, Standard Rig" style={{ padding: "10px 12px", border: "1px solid #dce7e0", borderRadius: 8, color: "#091c17" }} />
+            </label>
+            {stationEditorError && <p role="alert" style={{ color: "#b91c1c", fontSize: 13, margin: 0 }}>{stationEditorError}</p>}
+            <div style={{ display: "flex", justifyContent: "flex-end", gap: 8, marginTop: 4 }}>
+              <button type="button" disabled={stationSaving} onClick={() => setStationEditor(null)} style={{ border: "1px solid #dce7e0", background: "#fff", borderRadius: 8, padding: "9px 14px", cursor: "pointer", color: "#355b49" }}>Cancel</button>
+              <button type="submit" disabled={stationSaving} className="nodecafe-btn-primary" style={{ width: "auto", padding: "9px 16px" }}>{stationSaving ? "Saving…" : stationEditor.id ? "Save Changes" : "Add PC"}</button>
+            </div>
+          </form>
+        </div>
+      )}
+
       {/* Feature Action Modals (for adjusting rates or viewing full logs) */}
       <AdminActionModals
         modalId={activeActionModal}
@@ -1273,7 +1415,9 @@ export default function AdminDashboard() {
           onClose={() => {
             setShowProfileModal(false);
             setSelectedUserProfile(null);
+            setProfileInitialTab("profile");
           }}
+          initialTab={profileInitialTab}
           onProfileUpdated={() => {
             void fetchOverview();
           }}

@@ -73,11 +73,19 @@ It resumes the existing session, clears the frozen checkout, and records exclude
 billing time without changing the original start, customer, station or transfer history.
 Run the regression coverage with `node --test tests/station-checkout.test.cjs`.
 
-## Optional snacks in PC billing
+## PC-only session billing
 
-Apply `supabase/migrations/014_station_session_snacks.sql` before collecting a PC
-payment with snacks. Product data now lives in `src/snack-products.json`, shared
-with the frontend's existing snack-menu export. The payment endpoint accepts
-`snacks: [{ id, quantity }]`, validates prices against that catalog, and saves
-item snapshots and the combined total on the same session payment. No separate
-snack order or payment is created. PC-only payments still work before migration 014.
+Station checkout bills PC usage only. Migration 014 and its snack columns may
+remain in databases that already applied it; they are retained for historical
+session and receipt records and are no longer read or written by checkout.
+
+## PC station visibility
+
+Apply `supabase/migrations/016_pc_station_visibility.sql` to keep PC-01 through
+PC-08 visible by default. Higher-numbered legacy station rows are preserved but
+hidden until an administrator adds that PC from the Admin dashboard. The add
+action re-enables a matching preserved row when one exists, or creates a new row.
+
+Apply `supabase/migrations/017_set_vip_station_rates.sql` to set standard PCs to
+₱100/hour and VIP PCs to ₱150/hour. New and edited stations use the same rates
+based on their selected PC type.

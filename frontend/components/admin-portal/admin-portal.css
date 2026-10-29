@@ -270,19 +270,20 @@
   height: 38px;
   border-radius: 50%;
   background: #ffffff;
-  border: 1px solid #e1e9e5;
+  border: 1px solid #d6e2dc;
   display: flex;
   align-items: center;
   justify-content: center;
   position: relative;
-  color: #2d4a41;
+  color: #123725;
   cursor: pointer;
   transition: all 0.15s ease;
 }
 
 .nodecafe-notif-btn:hover {
-  background: #f0f5f3;
-  border-color: #cedad4;
+  background: #eff7f1;
+  border-color: #8aab97;
+  box-shadow: 0 2px 8px rgba(9, 28, 23, 0.16);
 }
 
 .nodecafe-notif-badge {
@@ -1003,6 +1004,76 @@
   margin-bottom: 18px;
 }
 
+.admin-report-controls {
+  display: flex;
+  align-items: end;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 8px 0 18px;
+}
+
+.admin-report-periods {
+  display: inline-flex;
+  gap: 4px;
+  padding: 4px;
+  border: 1px solid #e1e9e5;
+  border-radius: 10px;
+  background: #fff;
+}
+
+.admin-report-period {
+  min-height: 36px;
+  padding: 0 13px;
+  border: 0;
+  border-radius: 7px;
+  background: transparent;
+  color: #48665b;
+  font: inherit;
+  font-size: 13px;
+  font-weight: 700;
+  cursor: pointer;
+}
+
+.admin-report-period.active {
+  background: #153d30;
+  color: #fff;
+}
+
+.admin-report-date {
+  display: grid;
+  gap: 5px;
+  color: #6a887e;
+  font-size: 11px;
+  font-weight: 700;
+}
+
+.admin-report-date input {
+  height: 42px;
+  min-width: 154px;
+  padding: 0 10px;
+  border: 1px solid #dce7e1;
+  border-radius: 9px;
+  background: #fff;
+  color: #173b2f;
+  font: inherit;
+  font-size: 13px;
+}
+
+.admin-report-search {
+  width: min(100%, 340px);
+  margin-left: auto;
+}
+
+.admin-report-summary {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.admin-report-error {
+  margin: 0 0 14px;
+  color: #a33131;
+  font-size: 13px;
+}
+
 .nodecafe-stat-mini-card {
   background: #ffffff;
   border: 1px solid #e3ece8;
@@ -1041,6 +1112,15 @@
 
   .nodecafe-kpi-grid {
     grid-template-columns: 1fr;
+  }
+
+  .admin-report-summary {
+    grid-template-columns: 1fr;
+  }
+
+  .admin-report-search {
+    width: 100%;
+    margin-left: 0;
   }
 }
 

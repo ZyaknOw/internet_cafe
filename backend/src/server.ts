@@ -4,19 +4,39 @@ import express from "express";
 import { z } from "zod";
 import { AuthenticatedRequest, requireActiveUser, requireRole, requireSignedInProfile } from "./auth.js";
 import { supabaseAdmin } from "./supabase.js";
-import { STATION_HOURLY_RATE } from "./pc-services.js";
-import { priceBillingSnacks } from "./billing-snacks.js";
+import { STATION_HOURLY_RATE, stationHourlyRate } from "./pc-services.js";
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_URL ?? "http://localhost:3000" }));
 app.use(express.json());
 
-const MAX_STATIONS = 8;
-// The cafe floor has PC-01 through PC-08; legacy database rows are not rigs.
+const MAX_STATIONS = 99;
+// Cafe stations keep a PC number identity; an optional suffix is a display name.
 const isCafeStation = (name: string) => {
-  const match = /^PC[ -]*0*([1-9][0-9]*)$/i.exec(name.trim());
+  const match = /^PC[ -]*0*([1-9][0-9]*)(?:\s+[-–·]\s*.+)?$/i.exec(name.trim());
   return !!match && Number(match[1]) <= MAX_STATIONS;
 };
+const stationNumberFromName = (name: string) => {
+  const match = /^PC[ -]*0*([1-9][0-9]*)/i.exec(name.trim());
+  return match ? Number(match[1]) : null;
+};
+const stationIdentity = (name: string) => {
+  const number = stationNumberFromName(name);
+  return number ? `PC-${number}` : name.trim().toUpperCase();
+};
+const isVisibleCafeStation = (
+  station: { name: string; is_enabled?: boolean },
+  openSessions: { station_key?: string | null; station_name?: string | null }[] = [],
+) => isCafeStation(station.name) && (
+  station.is_enabled !== false || openSessions.some((session) =>
+    stationIdentity(String(session.station_key || session.station_name || "")) === stationIdentity(station.name))
+);
+const stationAdminInput = z.object({
+  name: z.string().trim().min(3).max(60).regex(/^PC[ -]*0*[1-9][0-9]*(?:\s+[-–·]\s*.+)?$/i, "Use a PC number, optionally followed by a display name."),
+  type: z.enum(["standard", "vip"]).default("standard"),
+  rate: z.number().positive().max(10000).default(STATION_HOURLY_RATE),
+  specs: z.string().trim().max(240).optional().default(""),
+});
 
 const accountRequest = z.object({
   firstName: z.string().min(1),
@@ -44,7 +64,30 @@ const profileUpdate = z.object({
 const stationSessionRequest = z.object({ stationKey: z.string().min(1), stationName: z.string().min(1), hourlyRate: z.number().nonnegative(), customerProfileId: z.string().uuid() });
 const clientSessionSignIn = z.object({ userCode: z.string().min(3), contact: z.string().min(1) });
 const checkoutStationSessionRequest = z.object({});
-const endStationSessionRequest = z.object({ paymentMethod: z.enum(["cash", "wallet"]), cashReceived: z.number().nonnegative().optional(), snacks: z.array(z.object({ id: z.string().min(1), quantity: z.number().int().min(1).max(99) })).max(100).default([]) });
+const endStationSessionRequest = z.object({ paymentMethod: z.enum(["cash", "wallet"]), cashReceived: z.number().nonnegative().optional() });
+
+const adminReportQuery = z.object({
+  period: z.enum(["daily", "monthly", "yearly"]).default("daily"),
+  date: z.string().regex(/^\d{4}-\d{2}-\d{2}$/),
+});
+
+function manilaReportRange(period: "daily" | "monthly" | "yearly", dateValue: string) {
+  const [year, month, day] = dateValue.split("-").map(Number);
+  const dateCheck = new Date(Date.UTC(year, month - 1, day));
+  if (dateCheck.getUTCFullYear() !== year || dateCheck.getUTCMonth() !== month - 1 || dateCheck.getUTCDate() !== day) return null;
+
+  const startLocal = period === "yearly"
+    ? `${year}-01-01T00:00:00+08:00`
+    : period === "monthly"
+      ? `${year}-${String(month).padStart(2, "0")}-01T00:00:00+08:00`
+      : `${dateValue}T00:00:00+08:00`;
+  const start = new Date(startLocal);
+  const end = new Date(start);
+  if (period === "yearly") end.setUTCFullYear(end.getUTCFullYear() + 1);
+  else if (period === "monthly") end.setUTCMonth(end.getUTCMonth() + 1);
+  else end.setUTCDate(end.getUTCDate() + 1);
+  return { start, end };
+}
 
 function logSupabaseError(operation: string, error: unknown) {
   const details = error && typeof error === "object" ? error as { message?: unknown; details?: unknown; hint?: unknown; code?: unknown } : {};
@@ -253,12 +296,18 @@ app.post("/api/station-sessions", requireActiveUser, requireRole("admin", "staff
   const value = input.data;
   const stationNumber = Number(value.stationKey.replace(/\D/g, ""));
   if (!Number.isInteger(stationNumber) || stationNumber < 1 || stationNumber > MAX_STATIONS) {
-    return res.status(400).json({ error: "Only PC-01 through PC-08 are available." });
+    return res.status(400).json({ error: `PC numbers must be between 1 and ${MAX_STATIONS}.` });
+  }
+  const { data: stationRows, error: stationError } = await supabaseAdmin.from("stations").select("name, hourly_rate, status");
+  if (stationError) return res.status(500).json({ error: "Could not verify the selected PC." });
+  const station = (stationRows || []).find((row) => stationNumberFromName(row.name) === stationNumber);
+  if (!station || !isCafeStation(station.name) || stationNumberFromName(station.name) !== stationNumber) {
+    return res.status(400).json({ error: "Choose an existing PC station." });
   }
   const { data: customer, error: customerError } = await supabaseAdmin.from("account_profiles").select("id, first_name, middle_name, last_name, role, status").eq("id", value.customerProfileId).single();
   if (customerError || !customer || customer.role !== "customer" || !["approved", "active"].includes(customer.status)) return res.status(400).json({ error: "Choose an approved registered customer." });
   const customerName = [customer.first_name, customer.middle_name, customer.last_name].filter(Boolean).join(" ");
-  const { data, error } = await supabaseAdmin.from("station_sessions").insert({ station_key: value.stationKey, station_name: value.stationName, hourly_rate: STATION_HOURLY_RATE, customer_profile_id: customer.id, customer_name: customerName, status: "active", started_at: new Date().toISOString(), created_by_profile_id: req.profile!.id }).select().single();
+  const { data, error } = await supabaseAdmin.from("station_sessions").insert({ station_key: `PC-${String(stationNumber).padStart(2, "0")}`, station_name: station.name, hourly_rate: Number(station.hourly_rate) || STATION_HOURLY_RATE, customer_profile_id: customer.id, customer_name: customerName, status: "active", started_at: new Date().toISOString(), created_by_profile_id: req.profile!.id }).select().single();
   if (error) return res.status(409).json({ error: error.message.includes("station_sessions_one_open_per_") ? "This station already has an open session." : error.message });
 
   // Sync public.stations status
@@ -309,7 +358,7 @@ app.get("/api/public/stations", async (_req, res) => {
   try {
     const { data: stations, error: stationsError } = await supabaseAdmin
       .from("stations")
-      .select("id, name, type, hourly_rate, notes, status")
+      .select("id, name, type, hourly_rate, notes, status, is_enabled")
       .order("name");
 
     if (stationsError) {
@@ -339,7 +388,7 @@ app.get("/api/public/stations", async (_req, res) => {
       }
     }
 
-    const publicStations = (stations ?? []).filter((station) => isCafeStation(station.name)).map((station) => ({
+    const publicStations = (stations ?? []).filter((station) => isVisibleCafeStation(station, openSessions ?? [])).map((station) => ({
       id: station.id,
       name: station.name,
       type: station.type,
@@ -362,6 +411,77 @@ app.get("/api/public/stations", async (_req, res) => {
   }
 });
 
+app.post("/api/admin/stations", requireActiveUser, requireRole("admin"), async (req, res) => {
+  const parsed = stationAdminInput.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Enter a valid PC name, type, rate, and specifications." });
+  const input = parsed.data;
+  const number = stationNumberFromName(input.name);
+  if (!number || number > MAX_STATIONS) return res.status(400).json({ error: `PC numbers must be between 1 and ${MAX_STATIONS}.` });
+  const { data: existing, error: lookupError } = await supabaseAdmin.from("stations").select("id, name, is_enabled");
+  if (lookupError) return res.status(500).json({ error: "Could not check existing PCs." });
+  const sameNumber = (existing || []).find((station) => stationNumberFromName(station.name) === number);
+  if (sameNumber && sameNumber.is_enabled !== false) {
+    return res.status(409).json({ error: `PC-${String(number).padStart(2, "0")} already exists.` });
+  }
+  if (sameNumber) {
+    const { data: openSessions, error: sessionsError } = await supabaseAdmin.from("station_sessions")
+      .select("station_key, station_name").in("status", ["pending_client", "active", "awaiting_payment"]);
+    if (sessionsError) return res.status(500).json({ error: "Could not check whether this PC is in use." });
+    if ((openSessions || []).some((session) => stationIdentity(session.station_key || session.station_name || "") === stationIdentity(sameNumber.name))) {
+      return res.status(409).json({ error: "This PC still has an open session and cannot be reactivated yet." });
+    }
+    const { data, error } = await supabaseAdmin.from("stations").update({
+      name: input.name, type: input.type, hourly_rate: stationHourlyRate(input.type), notes: input.specs || null,
+      status: "available", is_enabled: true,
+    }).eq("id", sameNumber.id).select("id, name, type, hourly_rate, notes, status").single();
+    if (error) return res.status(500).json({ error: error.message });
+    return res.status(201).json({ station: data });
+  }
+  const { data, error } = await supabaseAdmin.from("stations").insert({
+    name: input.name,
+    type: input.type,
+    hourly_rate: stationHourlyRate(input.type),
+    notes: input.specs || null,
+    status: "available",
+    is_enabled: true,
+  }).select("id, name, type, hourly_rate, notes, status").single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.status(201).json({ station: data });
+});
+
+app.patch("/api/admin/stations/:id", requireActiveUser, requireRole("admin"), async (req, res) => {
+  const parsed = stationAdminInput.safeParse(req.body);
+  if (!parsed.success) return res.status(400).json({ error: "Enter a valid PC name, type, rate, and specifications." });
+  const input = parsed.data;
+  const number = stationNumberFromName(input.name);
+  if (!number || number > MAX_STATIONS) return res.status(400).json({ error: `PC numbers must be between 1 and ${MAX_STATIONS}.` });
+  const { data: current, error: currentError } = await supabaseAdmin.from("stations").select("id, name").eq("id", req.params.id).maybeSingle();
+  if (currentError || !current) return res.status(404).json({ error: "PC station not found." });
+  if (stationNumberFromName(current.name) !== number) {
+    return res.status(400).json({ error: "Keep the PC number the same when changing its display name." });
+  }
+  const { data: existing, error: lookupError } = await supabaseAdmin.from("stations").select("id, name").neq("id", req.params.id);
+  if (lookupError) return res.status(500).json({ error: "Could not check existing PCs." });
+  if ((existing || []).some((station) => stationNumberFromName(station.name) === number)) {
+    return res.status(409).json({ error: `PC-${String(number).padStart(2, "0")} already exists.` });
+  }
+  const { data: openSessions, error: sessionsError } = await supabaseAdmin.from("station_sessions")
+    .select("station_key, station_name").in("status", ["pending_client", "active", "awaiting_payment"]);
+  if (sessionsError) return res.status(500).json({ error: "Could not verify whether this PC is in use." });
+  if ((openSessions || []).some((session) => stationIdentity(session.station_key || session.station_name || "") === stationIdentity(current.name))) {
+    return res.status(409).json({ error: "End the active session before editing this PC." });
+  }
+  const { data, error } = await supabaseAdmin.from("stations").update({
+    name: input.name,
+    type: input.type,
+    hourly_rate: stationHourlyRate(input.type),
+    notes: input.specs || null,
+    is_enabled: true,
+  }).eq("id", req.params.id).select("id, name, type, hourly_rate, notes, status").single();
+  if (error) return res.status(500).json({ error: error.message });
+  res.json({ station: data });
+});
+
 app.get("/api/stations", requireActiveUser, requireRole("admin", "staff"), async (_req, res) => {
   try {
     const { data: stations, error: stErr } = await supabaseAdmin
@@ -378,7 +498,6 @@ app.get("/api/stations", requireActiveUser, requireRole("admin", "staff"), async
 
     if (sessionsError) return res.status(500).json({ error: "Could not load station availability." });
 
-    const stationIdentity = (name: string) => name.trim().toUpperCase().replace(/^PC[ -]*0*([1-9][0-9]*)( .*)?$/, "PC-$1");
     const occupiedIdentities = new Set((openSessions || []).flatMap((session) => [
       stationIdentity(String(session.station_key)), stationIdentity(String(session.station_name)),
     ]));
@@ -393,8 +512,9 @@ app.get("/api/stations", requireActiveUser, requireRole("admin", "staff"), async
       }
     });
 
-    const list = (stations || []).filter((station) => isCafeStation(station.name)).map((st) => {
-      const s = openMap.get(st.name.toUpperCase());
+    const list = (stations || []).filter((station) => isVisibleCafeStation(station, openSessions || [])).map((st) => {
+      const s = openMap.get(st.name.toUpperCase()) || [...(openSessions || [])].find((session) =>
+        stationIdentity(String(session.station_key || session.station_name || "")) === stationIdentity(st.name));
       return {
         id: st.id,
         name: st.name,
@@ -444,8 +564,9 @@ app.get("/api/client/stations", requireActiveUser, async (req: AuthenticatedRequ
     });
 
     const viewerProfileId = req.profile?.id;
-    const list = (stations || []).filter((station) => isCafeStation(station.name)).map((st) => {
-      const s = openMap.get(st.name.toUpperCase());
+    const list = (stations || []).filter((station) => isVisibleCafeStation(station, openSessions || [])).map((st) => {
+      const s = openMap.get(st.name.toUpperCase()) || [...(openSessions || [])].find((session) =>
+        stationIdentity(String(session.station_key || session.station_name || "")) === stationIdentity(st.name));
       return {
         id: st.id,
         name: st.name,
@@ -477,7 +598,7 @@ app.post("/api/station-sessions/:sessionId/transfer", requireActiveUser, require
     .select("name").eq("id", input.data.destinationStationId).maybeSingle();
   if (destinationError) return res.status(500).json({ error: "Could not verify the destination PC." });
   if (!destination || !isCafeStation(destination.name)) {
-    return res.status(400).json({ error: "Choose a cafe PC from PC-01 through PC-08." });
+    return res.status(400).json({ error: "Choose a valid cafe PC." });
   }
   const { data, error } = await supabaseAdmin.rpc("transfer_station_session", {
     p_session_id: sessionId.data,
@@ -654,17 +775,7 @@ app.post("/api/station-sessions/:stationKey/end", requireActiveUser, requireRole
     ? Number(session.checkout_total)
     : Number(((durationSeconds / 3600) * Number(session.hourly_rate || STATION_HOURLY_RATE)).toFixed(2));
 
-  let snackItems: ReturnType<typeof priceBillingSnacks>;
-  try { snackItems = priceBillingSnacks(input.data.snacks); }
-  catch { return res.status(400).json({ error: "Choose valid snacks and quantities (1–99 per item)." }); }
-  if (snackItems.length && session.status !== "awaiting_payment") {
-    return res.status(409).json({ error: "Open Billing before adding snacks to this session." });
-  }
-  if (snackItems.length && !("snack_items" in session)) {
-    return res.status(503).json({ error: "Snack billing requires database migration 014_station_session_snacks.sql. Apply it in the Supabase SQL Editor, then retry." });
-  }
-  const snackTotal = snackItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
-  const total = Number((pcTotal + snackTotal).toFixed(2));
+  const total = pcTotal;
 
   const { data: customerProfile, error: customerError } = session.customer_profile_id
     ? await supabaseAdmin
@@ -687,7 +798,7 @@ app.post("/api/station-sessions/:stationKey/end", requireActiveUser, requireRole
 
   const { data, error } = await supabaseAdmin
     .from("station_sessions")
-    .update({ status: "ended", ended_at: endedAt.toISOString(), total, ...(snackItems.length ? { snack_items: snackItems, snack_total: snackTotal } : {}), payment_method: paymentMethod, cash_received: paymentMethod === "cash" ? cashReceived : null, change_due: paymentMethod === "cash" ? changeDue : null })
+    .update({ status: "ended", ended_at: endedAt.toISOString(), total, payment_method: paymentMethod, cash_received: paymentMethod === "cash" ? cashReceived : null, change_due: paymentMethod === "cash" ? changeDue : null })
     .eq("id", session.id)
     .eq("status", session.status)
     .eq("billing_paused_ms", session.billing_paused_ms || 0)
@@ -815,53 +926,7 @@ async function readOrderCounts() {
 // paid. So no balance is touched on this route: the member still owes the total
 // until staff process it at the counter.
 app.post("/api/client/orders", requireActiveUser, async (req: AuthenticatedRequest, res) => {
-  const input = cafeOrderRequest.safeParse(req.body);
-  if (!input.success) return res.status(400).json({ error: "Invalid café order", fields: input.error.flatten() });
-  const value = input.data;
-
-  // Prices and the total are re-derived here — the browser is never trusted with
-  // the amount that actually gets charged.
-  const items = value.items.map((item) => ({ id: item.id, name: item.name, price: Number(item.price), quantity: item.quantity }));
-  const total = Number(items.reduce((sum, item) => sum + item.price * item.quantity, 0).toFixed(2));
-  const itemCount = items.reduce((sum, item) => sum + item.quantity, 0);
-  if (total <= 0) return res.status(400).json({ error: "The order total must be greater than zero." });
-
-  // Payment is left unset until the cashier picks wallet or cash: `Unpaid` keeps
-  // the ticket clearly in the staff billing queue rather than looking settled.
-  const { data: customer, error: customerError } = await supabaseAdmin
-    .from("account_profiles")
-    .select("id, first_name, last_name, balance")
-    .eq("id", req.profile!.id)
-    .single();
-  if (customerError || !customer) return res.status(404).json({ error: "Customer profile not found." });
-
-  const customerName = `${customer.first_name ?? ""} ${customer.last_name ?? ""}`.trim() || "Customer";
-  const { data: created, error: orderError } = await supabaseAdmin
-    .from("orders")
-    .insert({
-      customer_profile_id: customer.id,
-      customer_name: customerName,
-      station_key: value.stationKey ?? null,
-      items,
-      item_count: itemCount,
-      total,
-      payment_method: UNPAID_PAYMENT,
-      status: "pending",
-      notes: value.notes ?? null,
-    })
-    .select()
-    .single();
-  if (orderError) {
-    const status = isOrdersTableMissing(orderError) ? 503 : 500;
-    return res.status(status).json({ error: orderError.message });
-  }
-
-  const balance = Number(customer.balance || 0);
-  res.status(201).json({
-    order: created,
-    balance,
-    message: `Order ${created.reference} sent to the front desk — please settle payment at the counter.`,
-  });
+  return res.status(410).json({ error: "Snack ordering has been discontinued. Please use the PC station services." });
 });
 
 // Staff Billing: settle a pending client order with cash. This is the only place
@@ -936,6 +1001,66 @@ app.get("/api/staff/orders", requireActiveUser, requireRole("admin", "staff"), a
     return res.status(500).json({ error: error.message });
   }
   res.json({ orders: data ?? [], available: true });
+});
+
+// Admin PC revenue report for a Manila calendar day, month, or year.
+app.get("/api/admin/reports", requireActiveUser, requireRole("admin"), async (req, res) => {
+  const input = adminReportQuery.safeParse(req.query);
+  if (!input.success) return res.status(400).json({ error: "Choose a valid report period and date." });
+  const range = manilaReportRange(input.data.period, input.data.date);
+  if (!range) return res.status(400).json({ error: "Choose a valid calendar date." });
+
+  const rows: any[] = [];
+  for (let offset = 0; ; offset += 1000) {
+    const { data, error } = await supabaseAdmin.from("station_sessions")
+      .select("id, station_key, station_name, customer_name, started_at, ended_at, checkout_duration_seconds, billing_paused_ms, checkout_total, total, payment_method")
+      .eq("status", "ended")
+      .not("ended_at", "is", null)
+      .gte("ended_at", range.start.toISOString())
+      .lt("ended_at", range.end.toISOString())
+      .order("ended_at", { ascending: false })
+      .range(offset, offset + 999);
+    if (error) return res.status(500).json({ error: "Could not load the PC revenue report." });
+    rows.push(...(data ?? []));
+    if (!data || data.length < 1000) break;
+  }
+
+  const transactions = rows.map((session) => {
+    const started = session.started_at ? new Date(session.started_at).getTime() : 0;
+    const ended = session.ended_at ? new Date(session.ended_at).getTime() : 0;
+    const hours = session.checkout_duration_seconds != null
+      ? Math.max(0, Number(session.checkout_duration_seconds) / 3600)
+      : started && ended
+        ? Math.max(0, (ended - started - Number(session.billing_paused_ms || 0)) / 3_600_000)
+        : 0;
+    const pcTotal = Number(session.checkout_total ?? session.total) || 0;
+    return {
+      id: `SES-${String(session.id).slice(0, 8).toUpperCase()}`,
+      source: "session",
+      customer: session.customer_name || "Customer",
+      service: `PC Session (${session.station_name || session.station_key || "Station"} · ${hours.toFixed(1)} hrs)`,
+      amount: pcTotal,
+      method: session.payment_method === "cash" ? "Cash" : session.payment_method === "wallet" ? "Wallet" : "Unknown",
+      timestamp: session.ended_at,
+      status: "paid",
+    };
+  });
+
+  res.json({
+    period: input.data.period,
+    date: input.data.date,
+    range: { start: range.start.toISOString(), end: range.end.toISOString() },
+    transactions,
+    summary: {
+      totalRevenue: transactions.reduce((sum, transaction) => sum + transaction.amount, 0),
+      sessionCount: transactions.length,
+      totalHours: rows.reduce((sum, session) => sum + (session.checkout_duration_seconds != null
+        ? Math.max(0, Number(session.checkout_duration_seconds) / 3600)
+        : session.started_at && session.ended_at
+          ? Math.max(0, (new Date(session.ended_at).getTime() - new Date(session.started_at).getTime() - Number(session.billing_paused_ms || 0)) / 3_600_000)
+          : 0), 0),
+    },
+  });
 });
 
 // Shared receipt feed for Admin and Staff: café tickets plus ended station
@@ -1243,6 +1368,10 @@ app.get("/api/admin/overview", requireActiveUser, requireRole("admin"), async (_
     const { count: usersCount } = await supabaseAdmin.from("account_profiles").select("id", { count: "exact", head: true });
     const { count: pendingCount } = await supabaseAdmin.from("account_profiles").select("id", { count: "exact", head: true }).eq("status", "pending");
     const { count: activeSessionsCount } = await supabaseAdmin.from("station_sessions").select("id", { count: "exact", head: true }).in("status", ["active", "awaiting_payment", "pending_client"]);
+    const { data: stationRows } = await supabaseAdmin.from("stations").select("name, is_enabled");
+    const { data: openStations } = await supabaseAdmin.from("station_sessions").select("station_key, station_name")
+      .in("status", ["active", "awaiting_payment", "pending_client"]);
+    const stationCount = (stationRows || []).filter((station) => isVisibleCafeStation(station, openStations || [])).length;
 
     const today = new Date();
     today.setHours(0, 0, 0, 0);
@@ -1254,7 +1383,7 @@ app.get("/api/admin/overview", requireActiveUser, requireRole("admin"), async (_
       dailyRevenue,
       activeSessions: activeSessionsCount ?? 0,
       totalUsers: usersCount ?? 0,
-      pcsOnline: { active: activeSessionsCount ?? 0, total: MAX_STATIONS },
+      pcsOnline: { active: activeSessionsCount ?? 0, total: stationCount },
       pendingOrders: orderCounts.pending,
       pendingRequests: pendingCount ?? 0,
     });
@@ -1270,12 +1399,16 @@ app.get("/api/staff/overview", requireActiveUser, requireRole("admin", "staff"),
       .from("station_sessions")
       .select("id", { count: "exact", head: true })
       .in("status", ["active", "awaiting_payment", "pending_client"]);
+    const { data: stationRows } = await supabaseAdmin.from("stations").select("name, is_enabled");
+    const { data: openStations } = await supabaseAdmin.from("station_sessions").select("station_key, station_name")
+      .in("status", ["active", "awaiting_payment", "pending_client"]);
+    const stationCount = (stationRows || []).filter((station) => isVisibleCafeStation(station, openStations || [])).length;
 
     // Snack tickets come from public.orders (migration 008).
     const orderCounts = await readOrderCounts();
     res.json({
       activeSessions: activeSessionsCount ?? 0,
-      pcsOnline: { active: activeSessionsCount ?? 0, total: MAX_STATIONS },
+      pcsOnline: { active: activeSessionsCount ?? 0, total: stationCount },
       pendingOrders: orderCounts.pending,
       orderCounts,
     });

@@ -12,7 +12,7 @@ interface SummaryMetricsProps {
 export function SummaryMetrics({
   activeSession = "—",
   balance = "₱ 0.00",
-  rate = "₱ 50/hr",
+  rate = "₱ 100/hr",
   onTopUp,
 }: SummaryMetricsProps) {
   return (

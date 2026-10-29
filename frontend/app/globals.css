@@ -3286,34 +3286,27 @@ input[aria-invalid="true"] {
   to { opacity: 1; translate: 0 0; }
 }
 
-/* Reveal the card, then bring the snack photo, inset and copy in as layers.
+/* Reveal the PC ad, then bring the photo and copy in as layers.
    Content stays visible if JavaScript or IntersectionObserver is unavailable. */
 @media (prefers-reduced-motion: no-preference) {
   :is(.lp-reveal, .lp-pc-card)[data-reveal="waiting"] { opacity: 0; }
   :is(.lp-reveal, .lp-pc-card)[data-reveal="visible"] {
     animation: lp-card-enter 800ms cubic-bezier(.22, 1, .36, 1) backwards;
   }
-  .lp-pc-card--snacks[data-reveal="visible"] .lp-snack-photo-main {
-    animation: lp-snack-photo-enter 1100ms cubic-bezier(.22, 1, .36, 1) 100ms backwards;
+  .lp-pc-card--ad[data-reveal="visible"] .lp-pc-ad-photo img {
+    animation: lp-pc-ad-photo-enter 1100ms cubic-bezier(.22, 1, .36, 1) 100ms backwards;
   }
-  .lp-pc-card--snacks[data-reveal="visible"] .lp-snack-photo-inset {
-    animation: lp-snack-inset-enter 900ms cubic-bezier(.22, 1, .36, 1) 250ms backwards;
-  }
-  .lp-pc-card--snacks[data-reveal="visible"] .lp-snack-copy > * {
+  .lp-pc-card--ad[data-reveal="visible"] .lp-pc-ad-copy > * {
     animation: lp-card-enter 750ms cubic-bezier(.22, 1, .36, 1) backwards;
     animation-delay: 320ms;
   }
-  .lp-pc-card--snacks[data-reveal="visible"] .lp-snack-copy > :nth-child(2) { animation-delay: 400ms; }
-  .lp-pc-card--snacks[data-reveal="visible"] .lp-snack-copy > :nth-child(3) { animation-delay: 480ms; }
-  .lp-pc-card--snacks[data-reveal="visible"] .lp-snack-copy > :nth-child(4) { animation-delay: 560ms; }
+  .lp-pc-card--ad[data-reveal="visible"] .lp-pc-ad-copy > :nth-child(2) { animation-delay: 400ms; }
+  .lp-pc-card--ad[data-reveal="visible"] .lp-pc-ad-copy > :nth-child(3) { animation-delay: 480ms; }
+  .lp-pc-card--ad[data-reveal="visible"] .lp-pc-ad-copy > :nth-child(4) { animation-delay: 560ms; }
 }
-@keyframes lp-snack-photo-enter {
+@keyframes lp-pc-ad-photo-enter {
   from { opacity: 0; scale: 1.08; }
   to { opacity: 1; scale: 1; }
-}
-@keyframes lp-snack-inset-enter {
-  from { opacity: 0; translate: 16px 24px; rotate: 3deg; }
-  to { opacity: 1; translate: 0 0; rotate: 0deg; }
 }
 @media (max-width: 768px) {
   .lp-pc-grid { grid-template-columns: minmax(0, 1fr); }
@@ -3322,30 +3315,19 @@ input[aria-invalid="true"] {
   .lp-pc-card, .lp-pc-card button { animation: none; transition: none; }
   .lp-pc-card:hover, .lp-pc-card button:hover { transform: none; }
 }
-.lp-root :is(#pcs, #services, #rates, #snacks) { scroll-margin-top: 100px; }
+.lp-root :is(#pcs, #services, #rates) { scroll-margin-top: 100px; }
 
-.lp-pc-card--snacks { padding: 0; overflow: hidden; gap: 0; }
-.lp-snack-photos { position: relative; width: 100%; height: clamp(180px, 18vw, 230px); overflow: hidden; }
-.lp-snack-photos img { object-fit: cover; transition: transform 500ms ease; }
-.lp-snack-photo-main { object-position: center; }
-.lp-snack-photo-inset {
-  position: absolute;
-  right: 20px;
-  bottom: 20px;
-  width: 38%;
-  height: 60%;
-  border: 5px solid var(--cream);
-  border-radius: 18px;
-  overflow: hidden;
-  box-shadow: 0 8px 24px rgba(0,0,0,.2);
-}
-.lp-snack-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; padding: clamp(24px, 3vw, 40px); }
+.lp-pc-card--ad { align-self: center; border: none; background: transparent; border-radius: 18px; }
+.lp-pc-ad-photo { position: relative; width: 100%; height: clamp(220px, 24vw, 330px); overflow: hidden; border-radius: 18px; }
+.lp-pc-ad-photo img { object-fit: cover; object-position: center; transition: transform 500ms ease; }
+.lp-pc-ad-copy { display: flex; flex-direction: column; align-items: flex-start; gap: 16px; padding: 24px 8px 8px; }
+.lp-pc-ad-copy h3 { font-size: 28px; }
 @media (hover: hover) {
-  .lp-pc-card--snacks:hover .lp-snack-photo-main { transform: scale(1.04); }
+  .lp-pc-card--ad:hover .lp-pc-ad-photo img { transform: scale(1.04); }
 }
 @media (prefers-reduced-motion: reduce) {
-  .lp-snack-photos img { transition: none; }
-  .lp-pc-card--snacks:hover .lp-snack-photo-main { transform: none; }
+  .lp-pc-ad-photo img { transition: none; }
+  .lp-pc-card--ad:hover .lp-pc-ad-photo img { transform: none; }
 }
 
 .auth-load-error {
@@ -3696,9 +3678,6 @@ input[aria-invalid="true"] {
 .lp-service-card p { margin: 0; max-width: 32ch; font-size: 15px; line-height: 1.7; color: var(--muted); }
 .lp-pc-card--rate { background: radial-gradient(ellipse at top right, #dce4cf 0%, transparent 65%), var(--cream-2); }
 .lp-pc-card--rate .lp-section-h2 { margin: 0; }
-.lp-pc-card--snacks { align-self: center; border: none; background: transparent; border-radius: 18px; }
-.lp-pc-card--snacks .lp-snack-copy { padding: 24px 8px 8px; }
-.lp-pc-card--snacks h3 { font-size: 28px; }
 .lp-service-icon svg, .lp-root :is(a, button) > svg { transition: transform 240ms ease; }
 .lp-nav-links a { position: relative; }
 .lp-nav-links a::after { content: ''; position: absolute; bottom: 3px; left: 14px; right: 14px; height: 1px; background: currentColor; transform: scaleX(0); transition: transform 200ms; }
@@ -3714,7 +3693,7 @@ input[aria-invalid="true"] {
 @media (hover: hover) {
   .lp-service-card:hover svg { transform: translateY(-3px); }
   .lp-root :is(a, button):hover > svg { transform: translateX(3px); }
-  .lp-pc-card--snacks:hover { transform: none; box-shadow: none; }
+  .lp-pc-card--ad:hover { transform: none; box-shadow: none; }
 }
 @media (max-width: 1100px) {
   .lp-nav { gap: 16px; }

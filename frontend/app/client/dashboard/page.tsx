@@ -20,6 +20,7 @@ import {
   ArrowRight,
   User,
   LogOut,
+  KeyRound,
   CheckCircle2,
   AlertCircle,
   Headphones,
@@ -138,8 +139,9 @@ export default function ClientDashboard() {
 
   const [dateStr, setDateStr] = useState("TUESDAY · SEPTEMBER 22, 2026");
   const [greeting, setGreeting] = useState("Good evening, Client.");
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(false);
   const [showProfileModal, setShowProfileModal] = useState(false);
+  const [profileInitialTab, setProfileInitialTab] = useState<"profile" | "password">("profile");
   const [toast, setToast] = useState<string | null>(null);
 
   const [sessionSeconds, setSessionSeconds] = useState(2520); // 42 minutes default
@@ -537,14 +539,6 @@ export default function ClientDashboard() {
             </button>
 
             <button
-              className={`nodecafe-nav-item ${activeTab === "coffee" ? "active" : ""}`}
-              onClick={() => setActiveTab("coffee")}
-            >
-              <Coffee size={17} />
-              <span>Snacks</span>
-            </button>
-
-            <button
               className={`nodecafe-nav-item ${activeTab === "transactions" ? "active" : ""}`}
               onClick={openTransactionsTab}
             >
@@ -587,12 +581,13 @@ export default function ClientDashboard() {
               <span className="nodecafe-notif-badge">1</span>
             </button>
 
-            {/* Profile Avatar Pill with Dropdown */}
+            {/* Account actions open in a modal */}
             <div style={{ position: "relative" }}>
               <button
                 className="nodecafe-user-pill"
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                aria-expanded={showProfileMenu}
+                onClick={() => setShowAccountModal(true)}
+                aria-haspopup="dialog"
+                aria-expanded={showAccountModal}
                 aria-label="Client account menu"
               >
                 <div className="nodecafe-user-avatar" aria-hidden="true">
@@ -609,34 +604,22 @@ export default function ClientDashboard() {
                 <span className="nodecafe-user-label">Client account</span>
               </button>
 
-              {showProfileMenu && (
-                <div className="nodecafe-user-dropdown" role="menu">
-                  <button
-                    className="nodecafe-dropdown-item"
-                    onClick={() => {
-                      setShowProfileMenu(false);
-                      setShowProfileModal(true);
-                    }}
-                  >
-                    <User size={15} />
-                    <span>My Profile</span>
-                  </button>
-                  <div style={{ height: 1, background: "#edf3f0", margin: "4px 0" }} />
-                  <button
-                    className="nodecafe-dropdown-item danger"
-                    onClick={() => {
-                      setShowProfileMenu(false);
-                      void logout();
-                    }}
-                  >
-                    <LogOut size={15} />
-                    <span>Sign Out</span>
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         </header>
+
+        {showAccountModal && (
+          <div role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowAccountModal(false); }} style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(8, 24, 18, .48)", display: "grid", placeItems: "center", padding: 20 }}>
+            <section role="dialog" aria-modal="true" aria-labelledby="client-account-title" style={{ width: "min(100%, 400px)", background: "#fff", borderRadius: 16, padding: 22, boxShadow: "0 24px 70px rgba(0,0,0,.2)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}><div><h2 id="client-account-title" style={{ margin: 0, color: "#123725", fontSize: 19 }}>Client account</h2><p style={{ margin: "5px 0 0", color: "#6a887e", fontSize: 13 }}>{displayName}</p></div><button type="button" aria-label="Close account" onClick={() => setShowAccountModal(false)} style={{ width: 32, height: 32, border: "1px solid #dce7e0", borderRadius: 8, background: "#fff", color: "#355b49", fontSize: 20, lineHeight: 1, cursor: "pointer" }}>×</button></div>
+              <div style={{ display: "grid", gap: 8 }}>
+                <button type="button" onClick={() => { setShowAccountModal(false); setProfileInitialTab("profile"); setShowProfileModal(true); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, border: "1px solid #e1ebe5", borderRadius: 9, background: "#fff", color: "#123725", fontWeight: 600, cursor: "pointer" }}><User size={17} /> My Profile</button>
+                <button type="button" onClick={() => { setShowAccountModal(false); setProfileInitialTab("password"); setShowProfileModal(true); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, border: "1px solid #e1ebe5", borderRadius: 9, background: "#fff", color: "#123725", fontWeight: 600, cursor: "pointer" }}><KeyRound size={17} /> Change Password</button>
+                <button type="button" onClick={() => { setShowAccountModal(false); void logout(); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, border: "1px solid #f0d8d8", borderRadius: 9, background: "#fffafa", color: "#a33131", fontWeight: 600, cursor: "pointer" }}><LogOut size={17} /> Sign Out</button>
+              </div>
+            </section>
+          </div>
+        )}
 
         {/* -------------------------------------------------------------
             TAB 1: CLIENT OVERVIEW
@@ -718,14 +701,6 @@ export default function ClientDashboard() {
 
                 <div style={{ display: "flex", gap: 12 }}>
                   <button
-                    className="nodecafe-btn-primary"
-                    onClick={() => setActiveTab("coffee")}
-                    style={{ flex: 1 }}
-                  >
-                    <Coffee size={16} />
-                    <span>Order Snacks to {myStation ? myStation.name : "your station"}</span>
-                  </button>
-                  <button
                     className="nodecafe-btn-decline"
                     onClick={() => {
                       showToast("Front desk alerted! A staff member is on their way to your station.");
@@ -746,21 +721,6 @@ export default function ClientDashboard() {
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
-                  <button
-                    className="nodecafe-btn-decline"
-                    style={{ textAlign: "left", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}
-                    onClick={() => setActiveTab("coffee")}
-                  >
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <Coffee size={16} color="#0b2b23" />
-                      <div>
-                        <b style={{ color: "#091c17", fontSize: 13 }}>Pre-order Snacks</b>
-                        <div style={{ fontSize: 11, color: "#6a887e" }}>Delivered to your PC seat</div>
-                      </div>
-                    </div>
-                    <ArrowRight size={14} color="#6a887e" />
-                  </button>
-
                   <button
                     className="nodecafe-btn-decline"
                     style={{ textAlign: "left", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}
@@ -835,26 +795,6 @@ export default function ClientDashboard() {
                   </div>
                 </div>
 
-                <div
-                  className="nodecafe-service-card"
-                  onClick={() => setActiveTab("coffee")}
-                  role="button"
-                  tabIndex={0}
-                >
-                  <div className="nodecafe-service-top">
-                    <div className="nodecafe-service-icon" aria-hidden="true">
-                      <Coffee size={19} />
-                    </div>
-                    <div>
-                      <div className="nodecafe-service-name">Snacks</div>
-                      <div className="nodecafe-service-spec">{SNACK_PRODUCTS.map((snack) => snack.name).join(" & ")}</div>
-                    </div>
-                  </div>
-                  <div className="nodecafe-service-bottom">
-                    <div className="nodecafe-service-price">&#8369;{SNACK_PRODUCTS[0].price} / pack</div>
-                    <div className="nodecafe-service-badge">Available</div>
-                  </div>
-                </div>
               </div>
             </section>
           </div>
@@ -1011,7 +951,7 @@ export default function ClientDashboard() {
         {/* -------------------------------------------------------------
             TAB 4: CAFÉ ORDERS (mirrors the staff / cashier menu)
             ------------------------------------------------------------- */}
-        {activeTab === "coffee" && (
+        {false && activeTab === "coffee" && (
           <div className="nodecafe-page-view">
             {/* ── Page Title + Controls ─────────────────────────────────── */}
             <div className="cafe-orders-header">
@@ -1371,7 +1311,8 @@ export default function ClientDashboard() {
       {showProfileModal && (
         <UserProfileModal
           targetProfile={null}
-          onClose={() => setShowProfileModal(false)}
+          initialTab={profileInitialTab}
+          onClose={() => { setShowProfileModal(false); setProfileInitialTab("profile"); }}
         />
       )}
     </div>

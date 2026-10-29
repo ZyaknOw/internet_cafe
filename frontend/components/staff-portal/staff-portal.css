@@ -149,6 +149,29 @@
   border-color: var(--glass-bg);
 }
 
+/* The dashboard root uses staff-dashboard-root; keep the header bell visible
+   against the glass theme instead of inheriting the pale shared button. */
+.staff-dashboard-root .nodecafe-notif-btn {
+  width: 40px;
+  height: 40px;
+  border-radius: 50%;
+  background: #ffffff;
+  border: 1px solid #d6e2dc;
+  color: #123725;
+  box-shadow: 0 2px 8px rgba(9, 28, 23, 0.1);
+}
+
+.staff-dashboard-root .nodecafe-notif-btn:hover {
+  background: #eff7f1;
+  border-color: #8aab97;
+  box-shadow: 0 2px 10px rgba(9, 28, 23, 0.14);
+}
+
+.staff-dashboard-root .nodecafe-notif-btn:focus-visible {
+  outline: 3px solid #5d9b71;
+  outline-offset: 3px;
+}
+
 .staff-glass-root .nodecafe-nav-item > span[style] {
   background: rgba(255, 95, 168, 0.14) !important;
   color: var(--glass-pink) !important;

@@ -25,7 +25,7 @@ import {
   ArrowRight,
   User,
   LogOut,
-  Settings,
+  KeyRound,
   Search,
   CheckCircle,
   Coins,
@@ -112,7 +112,7 @@ const DEFAULT_STATIONS: StationItem[] = Array.from({ length: 8 }, (_, i) => {
     id: `pc-${num}`,
     name: `PC-${num}`,
     type: "Standard",
-    rate: 50,
+    rate: 100,
     specs: "165Hz, RTX 4060, Standard Rig",
     status: "available",
     customerName: undefined,
@@ -385,7 +385,9 @@ export default function StaffDashboard() {
 
   const [dateStr, setDateStr] = useState("TUESDAY · SEPTEMBER 22, 2026");
   const [greeting, setGreeting] = useState("Good evening, Staff.");
-  const [showProfileMenu, setShowProfileMenu] = useState(false);
+  const [showAccountModal, setShowAccountModal] = useState(false);
+  const [showNotificationModal, setShowNotificationModal] = useState(false);
+  const [profileInitialTab, setProfileInitialTab] = useState<"profile" | "password">("profile");
 
   // In-page States
   const [stations, setStations] = useState<StationItem[]>(DEFAULT_STATIONS);
@@ -508,6 +510,13 @@ export default function StaffDashboard() {
         setOverview(data);
       }
 
+      const stationRes = await fetch(`${API_URL}/api/stations`, { headers });
+      let stationInventory: StationItem[] | null = null;
+      if (stationRes.ok) {
+        const stationBody = await stationRes.json() as { stations?: StationItem[] };
+        stationInventory = stationBody.stations || [];
+      }
+
       // Sync active station sessions
       const sessRes = await fetch(`${API_URL}/api/station-sessions/open`, { headers });
       if (sessRes.ok && revision === stationRevision.current) {
@@ -526,11 +535,12 @@ export default function StaffDashboard() {
 
         if (revision !== stationRevision.current) return;
         setStations((prev) =>
-          prev.map((st) => {
+          (stationInventory ?? prev).map((st) => {
             const open =
               openMap.get(st.name.toUpperCase()) ||
               openMap.get(st.id.toUpperCase()) ||
-              openMap.get(st.name.replace(/\D/g, ""));
+              openMap.get(st.name.replace(/\D/g, "")) ||
+              openSessions.find((session) => String(session.station_key || "").replace(/\D/g, "") === st.name.replace(/\D/g, ""));
             if (open) {
               return {
                 ...st,
@@ -761,7 +771,7 @@ export default function StaffDashboard() {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
-        body: JSON.stringify({ paymentMethod, snacks: selectedBillingSnacks.map(({ id, quantity }) => ({ id, quantity })), ...(paymentMethod === "cash" ? { cashReceived: received } : {}) }),
+        body: JSON.stringify({ paymentMethod, ...(paymentMethod === "cash" ? { cashReceived: received } : {}) }),
       });
 
       const body = await res.json().catch(() => ({}));
@@ -773,7 +783,7 @@ export default function StaffDashboard() {
         station: st,
         amount: Number(body.session?.total) || total,
         pcTotal: Number(body.session?.checkout_total ?? stationPaymentTotal(st)),
-        snacks: body.session?.snack_items ?? [],
+        snacks: [],
         method: paymentMethod,
         cashReceived: paymentMethod === "cash" ? Number(body.session?.cash_received ?? received) : undefined,
         change: paymentMethod === "cash" ? Number(body.session?.change_due ?? (received - total)) : undefined,
@@ -892,7 +902,7 @@ export default function StaffDashboard() {
     return Number(Math.max(0, ((liveNow - startedAt - (station.billingPausedMs || 0)) / 3_600_000) * station.rate).toFixed(2));
   };
 
-  const stationBillingTotal = (station: StationItem) => stationPaymentTotal(station) + (station.sessionId === stationBilling?.sessionId ? billingSnackTotal : 0);
+  const stationBillingTotal = (station: StationItem) => stationPaymentTotal(station);
 
   const walletAllowedForStation = (station: StationItem) => {
     const customer = customers.find((item) => item.id === station.customerProfileId);
@@ -979,16 +989,8 @@ export default function StaffDashboard() {
             </button>
 
             <button
-              className={`nodecafe-nav-item ${activeTab === "orders" ? "active" : ""}`}
-              onClick={() => setActiveTab("orders")}
-            >
-              <Coffee size={17} />
-              <span>Snack Orders</span>
-            </button>
-
-            <button
               className={`nodecafe-nav-item ${activeTab === "billing" ? "active" : ""}`}
-              onClick={() => setActiveTab("billing")}
+              onClick={() => setShowNotificationModal(true)}
               style={{ position: "relative" }}
             >
               <Receipt size={17} />
@@ -1055,20 +1057,21 @@ export default function StaffDashboard() {
             {/* Notification Bell */}
             <button
               className="nodecafe-notif-btn"
-              onClick={() => setActiveTab("orders")}
+              onClick={() => setActiveTab("billing")}
               title="View pending order notifications"
               aria-label="Notifications"
             >
-              <Bell size={17} />
-              <span className="nodecafe-notif-badge">3</span>
+              <Bell size={19} strokeWidth={2.5} color="#123725" aria-hidden="true" style={{ display: "block", flexShrink: 0, zIndex: 1 }} />
+              <span className="nodecafe-notif-badge">{pendingClientOrders.length + stations.filter((station) => station.awaitingPayment).length}</span>
             </button>
 
-            {/* Profile Avatar Pill with Dropdown */}
+            {/* Account actions open in a modal */}
             <div style={{ position: "relative" }}>
               <button
                 className="nodecafe-user-pill"
-                onClick={() => setShowProfileMenu(!showProfileMenu)}
-                aria-expanded={showProfileMenu}
+                onClick={() => setShowAccountModal(true)}
+                aria-haspopup="dialog"
+                aria-expanded={showAccountModal}
                 aria-label="Staff account menu"
               >
                 <div className="nodecafe-user-avatar" aria-hidden="true">
@@ -1085,35 +1088,35 @@ export default function StaffDashboard() {
                 <span className="nodecafe-user-label">Staff account</span>
               </button>
 
-              {showProfileMenu && (
-                <div className="nodecafe-user-dropdown" role="menu">
-                  <button
-                    className="nodecafe-dropdown-item"
-                    onClick={() => {
-                      setShowProfileMenu(false);
-                      setSelectedUserProfile(null);
-                      setShowProfileModal(true);
-                    }}
-                  >
-                    <User size={15} />
-                    <span>My Profile</span>
-                  </button>
-                  <div style={{ height: 1, background: "#edf3f0", margin: "4px 0" }} />
-                  <button
-                    className="nodecafe-dropdown-item danger"
-                    onClick={() => {
-                      setShowProfileMenu(false);
-                      void logout();
-                    }}
-                  >
-                    <LogOut size={15} />
-                    <span>Sign Out</span>
-                  </button>
-                </div>
-              )}
             </div>
           </div>
         </header>
+
+        {showNotificationModal && (
+          <div role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowNotificationModal(false); }} style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(8, 24, 18, .48)", display: "grid", placeItems: "center", padding: 20 }}>
+            <section role="dialog" aria-modal="true" aria-labelledby="staff-notifications-title" style={{ width: "min(100%, 480px)", background: "#fff", borderRadius: 16, padding: 22, boxShadow: "0 24px 70px rgba(0,0,0,.2)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "flex-start", gap: 16, marginBottom: 16 }}><div><h2 id="staff-notifications-title" style={{ margin: 0, color: "#123725", fontSize: 19 }}>Notifications</h2><p style={{ margin: "5px 0 0", color: "#6a887e", fontSize: 13 }}>Orders and PC sessions needing attention</p></div><button type="button" aria-label="Close notifications" onClick={() => setShowNotificationModal(false)} style={{ width: 32, height: 32, border: "1px solid #dce7e0", borderRadius: 8, background: "#fff", color: "#355b49", fontSize: 20, lineHeight: 1, cursor: "pointer" }}>×</button></div>
+              {(pendingClientOrders.length > 0 || stations.some((station) => station.awaitingPayment)) ? <div style={{ display: "grid", gap: 9, maxHeight: 360, overflowY: "auto" }}>
+                {pendingClientOrders.map((order) => <button key={order.id} type="button" onClick={() => { setShowNotificationModal(false); setStationBilling(null); setActiveTab("billing"); }} style={{ textAlign: "left", border: "1px solid #e1ebe5", borderRadius: 10, background: "#f8fbf8", padding: "12px 14px", cursor: "pointer" }}><b style={{ display: "block", color: "#123725", fontSize: 13 }}>Order {order.reference} · {order.customer_name}</b><span style={{ display: "block", marginTop: 4, color: "#6a887e", fontSize: 12 }}>{order.station_key || "Front Desk"} · {order.item_count} item(s) · ₱{Number(order.total).toFixed(2)} · awaiting payment</span></button>)}
+                {stations.filter((station) => station.awaitingPayment).map((station) => <button key={station.id} type="button" onClick={() => { setShowNotificationModal(false); openStationBilling(station); }} style={{ textAlign: "left", border: "1px solid #e1ebe5", borderRadius: 10, background: "#fff9eb", padding: "12px 14px", cursor: "pointer" }}><b style={{ display: "block", color: "#123725", fontSize: 13 }}>{station.name} · {station.customerName || "Customer"}</b><span style={{ display: "block", marginTop: 4, color: "#806229", fontSize: 12 }}>PC session is awaiting payment · Open billing</span></button>)}
+              </div> : <div style={{ padding: "25px 12px", textAlign: "center", color: "#6a887e", background: "#f8fbf8", borderRadius: 10, fontSize: 13 }}>You&apos;re all caught up. No pending notifications.</div>}
+              <button type="button" onClick={() => { setShowNotificationModal(false); setActiveTab("billing"); }} style={{ marginTop: 14, width: "100%", padding: 11, border: 0, borderRadius: 9, background: "#123725", color: "#fff", fontWeight: 700, cursor: "pointer" }}>Open Billing</button>
+            </section>
+          </div>
+        )}
+
+        {showAccountModal && (
+          <div role="presentation" onMouseDown={(event) => { if (event.target === event.currentTarget) setShowAccountModal(false); }} style={{ position: "fixed", inset: 0, zIndex: 1200, background: "rgba(8, 24, 18, .48)", display: "grid", placeItems: "center", padding: 20 }}>
+            <section role="dialog" aria-modal="true" aria-labelledby="staff-account-title" style={{ width: "min(100%, 400px)", background: "#fff", borderRadius: 16, padding: 22, boxShadow: "0 24px 70px rgba(0,0,0,.2)" }}>
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}><div><h2 id="staff-account-title" style={{ margin: 0, color: "#123725", fontSize: 19 }}>Staff account</h2><p style={{ margin: "5px 0 0", color: "#6a887e", fontSize: 13 }}>{displayName}</p></div><button type="button" aria-label="Close account" onClick={() => setShowAccountModal(false)} style={{ width: 32, height: 32, border: "1px solid #dce7e0", borderRadius: 8, background: "#fff", color: "#355b49", fontSize: 20, lineHeight: 1, cursor: "pointer" }}>×</button></div>
+              <div style={{ display: "grid", gap: 8 }}>
+                <button type="button" onClick={() => { setShowAccountModal(false); setSelectedUserProfile(null); setProfileInitialTab("profile"); setShowProfileModal(true); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, border: "1px solid #e1ebe5", borderRadius: 9, background: "#fff", color: "#123725", fontWeight: 600, cursor: "pointer" }}><User size={17} /> My Profile</button>
+                <button type="button" onClick={() => { setShowAccountModal(false); setSelectedUserProfile(null); setProfileInitialTab("password"); setShowProfileModal(true); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, border: "1px solid #e1ebe5", borderRadius: 9, background: "#fff", color: "#123725", fontWeight: 600, cursor: "pointer" }}><KeyRound size={17} /> Change Password</button>
+                <button type="button" onClick={() => { setShowAccountModal(false); void logout(); }} style={{ display: "flex", alignItems: "center", gap: 10, padding: 12, border: "1px solid #f0d8d8", borderRadius: 9, background: "#fffafa", color: "#a33131", fontWeight: 600, cursor: "pointer" }}><LogOut size={17} /> Sign Out</button>
+              </div>
+            </section>
+          </div>
+        )}
 
         {/* Feedback / Toast Banner */}
         {feedback && (
@@ -1153,14 +1156,6 @@ export default function StaffDashboard() {
                 <div className="nodecafe-kpi-val">{stations.filter((s) => s.status === "in-use").length} / {stations.length}</div>
                 <div className="nodecafe-kpi-sub" style={{ color: "#166534" }}>
                   {stations.filter((s) => s.status === "available").length} stations available
-                </div>
-              </div>
-
-              <div className="nodecafe-kpi-card">
-                <div className="nodecafe-kpi-label">Pending Snack Orders</div>
-                <div className="nodecafe-kpi-val">{overview.pendingOrders}</div>
-                <div className="nodecafe-kpi-sub" style={{ color: "#92400e" }}>
-                  Deliver to workstations
                 </div>
               </div>
 
@@ -1449,7 +1444,7 @@ export default function StaffDashboard() {
         {/* -------------------------------------------------------------
             TAB 3: CAFÉ ORDERS (FULL IN-PAGE VIEW)
             ------------------------------------------------------------- */}
-        {activeTab === "orders" && (
+        {false && activeTab === "orders" && (
           <div className="nodecafe-page-view">
             {/* ── Page Title + Subtitle ─────────────────────────────────── */}
             <div className="cafe-orders-header">
@@ -1550,22 +1545,12 @@ export default function StaffDashboard() {
             ------------------------------------------------------------- */}
         {activeTab === "billing" && (
           <div className="nodecafe-page-view">
-            {/* Minimal cash-only billing: settle client orders and bill walk-ins. */}
+            {/* Collect outstanding tickets and PC station session payments. */}
             <div className="billing-page-header">
               <div>
                 <h2 className="billing-page-title">Billing</h2>
-                <p className="billing-page-subtitle">Confirm café orders or station session payments at the counter.</p>
+                <p className="billing-page-subtitle">Collect outstanding payments and close PC station sessions.</p>
               </div>
-              {billingOrder.length === 0 && (
-                <button
-                  className="nodecafe-btn-primary"
-                  style={{ width: "auto", padding: "9px 16px" }}
-                  onClick={() => setActiveTab("orders")}
-                >
-                  <Coffee size={15} />
-                  <span>Snack Orders</span>
-                </button>
-              )}
             </div>
 
             {/* Incoming client orders — flat list, one cash action each. */}
@@ -1615,7 +1600,6 @@ export default function StaffDashboard() {
                   <div className="billing-item-row"><div><div className="billing-item-name">Session start</div><div className="billing-item-meta">{stationBilling.startedAt || "—"}</div></div></div>
                   <div className="billing-item-row"><div><div className="billing-item-name">Checkout time</div><div className="billing-item-meta">{stationBilling.checkoutAt ? new Date(stationBilling.checkoutAt).toLocaleTimeString([], { hour: "numeric", minute: "2-digit" }) : "—"}</div></div></div>
                   <div className="billing-item-row"><div><div className="billing-item-name">PC Usage</div><div className="billing-item-meta">{stationElapsedTime(stationBilling)}</div></div><div className="billing-item-price">₱{stationPaymentTotal(stationBilling).toFixed(2)}</div></div>
-                  {selectedBillingSnacks.map((item) => <div className="billing-item-row" key={item.id}><div><div className="billing-item-name">{item.name}</div><div className="billing-item-meta">{item.quantity} × ₱{item.price.toFixed(2)}</div></div><div className="billing-item-price">₱{(item.price * item.quantity).toFixed(2)}</div></div>)}
                   </div>
                   <div className="billing-summary-footer">
                     <div className="billing-summary-row"><span>Subtotal</span><span>₱{stationBillingTotal(stationBilling).toFixed(2)}</span></div>
@@ -1630,36 +1614,16 @@ export default function StaffDashboard() {
                       <button className={stationPaymentMethod === "wallet" ? "billing-process-btn" : "billing-back-btn"} onClick={() => setStationPaymentMethod("wallet")}>Wallet</button>
                     </div>
                   </div>
-                  <div className="billing-section billing-snacks">
-                    <div className="billing-section-label">Would they like to add some snacks?</div>
-                    <p className="billing-snacks-hint">Optional · added to this payment</p>
-                    {SNACK_PRODUCTS.map((product) => {
-                      const quantity = selectedBillingSnacks.find((item) => item.id === product.id)?.quantity || 0;
-                      const setQuantity = (value: number) => setBillingSnacks((current) => ({
-                        sessionId: stationBilling.sessionId!,
-                        quantities: { ...(current && current.sessionId === stationBilling.sessionId ? current.quantities : {}), [product.id]: Math.min(99, Math.max(0, value)) },
-                      }));
-                      return <div className="billing-snack-row" key={product.id}>
-                        <img src={product.image} alt="" width={36} height={36} />
-                        <div className="billing-snack-name"><b>{product.name}</b><span>₱{product.price.toFixed(2)} / pack</span></div>
-                        <div className="billing-snack-quantity">
-                          <button type="button" aria-label={`Remove one ${product.name}`} disabled={!!actionLoading || quantity === 0} onClick={() => setQuantity(quantity - 1)}>−</button>
-                          <output aria-label={`${product.name} quantity`}>{quantity}</output>
-                          <button type="button" aria-label={`Add one ${product.name}`} disabled={!!actionLoading || quantity === 99} onClick={() => setQuantity(quantity + 1)}>+</button>
-                        </div>
-                      </div>;
-                    })}
-                  </div>
                   {stationPaymentMethod === "cash" ? (
                     <div className="billing-section">
                       <div className="billing-section-label">Cash Received</div>
-                      <input type="number" min={stationBillingTotal(stationBilling)} step="0.01" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} className="billing-customer-search-input" placeholder="Enter cash received" />
+                      <input type="text" inputMode="decimal" value={cashReceived} onChange={(event) => setCashReceived(event.target.value)} className="billing-customer-search-input" placeholder="Enter cash received" />
                       <div className="billing-summary-row" style={{ marginTop: 12 }}><span>Change</span><b>₱{Math.max(0, Number(cashReceived || 0) - stationBillingTotal(stationBilling)).toFixed(2)}</b></div>
                     </div>
                   ) : (
                     <div className="billing-section"><div className="billing-section-label">Wallet Balance</div><div className="billing-total-amount">₱{(customers.find((customer) => customer.id === stationBilling.customerProfileId)?.balance ?? 0).toFixed(2)}</div><p style={{ fontSize: 12, color: "#66817B" }}>₱{stationBillingTotal(stationBilling).toFixed(2)} will be deducted after confirmation.</p></div>
                   )}
-                  <button className="billing-process-btn" disabled={actionLoading === stationBilling.id || (stationPaymentMethod === "cash" ? Number(cashReceived || 0) < stationBillingTotal(stationBilling) : !walletAllowedForStation(stationBilling))} onClick={() => void handleEndSession(stationBilling, stationPaymentMethod)}>{actionLoading === stationBilling.id ? "Processing..." : "Confirm Payment"}</button>
+                  <button className="billing-process-btn" disabled={actionLoading === stationBilling.id || (stationPaymentMethod === "cash" ? !Number.isFinite(Number(cashReceived)) || Number(cashReceived) < stationBillingTotal(stationBilling) : !walletAllowedForStation(stationBilling))} onClick={() => void handleEndSession(stationBilling, stationPaymentMethod)}>{actionLoading === stationBilling.id ? "Processing..." : "Confirm Payment"}</button>
                   {feedback?.type === "error" && <p role="alert" style={{ color: "#991b1b", fontSize: 12 }}>{feedback.text}</p>}
                 </div>
               </div>
@@ -1667,7 +1631,7 @@ export default function StaffDashboard() {
               <div className="billing-empty">
                 <Receipt size={36} style={{ color: "#b0c8bf", marginBottom: 12 }} />
                 <p style={{ margin: 0, color: "#66817B", fontSize: 13.5 }}>
-                  No order selected. Confirmed client orders show above; to bill a walk-in, open <b>Snack Orders</b> and add items.
+                  No order selected. PC session payments can be processed from the Stations tab.
                 </p>
               </div>
             ) : (
@@ -2166,7 +2130,9 @@ export default function StaffDashboard() {
           onClose={() => {
             setShowProfileModal(false);
             setSelectedUserProfile(null);
+            setProfileInitialTab("profile");
           }}
+          initialTab={profileInitialTab}
           onProfileUpdated={() => {
             void fetchOverview();
           }}
