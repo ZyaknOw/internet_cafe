@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import { CircleCheck, Clock3, Computer, LogIn, ShieldCheck, UserRound, Wifi } from "lucide-react";
 import { supabase } from "@/lib/supabase/client";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
 
 interface ActiveSessionData {
   id?: string;

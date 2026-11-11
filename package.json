@@ -1,0 +1,11 @@
+{
+  "name": "internet-cafe",
+  "private": true,
+  "main": "server.js",
+  "engines": { "node": ">=22" },
+  "scripts": {
+    "build": "npm ci --prefix backend --include=dev && npm ci --prefix frontend --include=dev && npm run build --prefix backend && npm run build --prefix frontend",
+    "start": "node server.js",
+    "test": "npm run build --prefix backend && node --test tests/combined-server.test.cjs"
+  }
+}

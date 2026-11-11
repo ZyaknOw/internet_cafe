@@ -85,7 +85,7 @@ interface CustomerUser {
   balance?: number;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
 
 /** Safely pull a human-readable message out of an unknown thrown value. */
 const errorMessage = (err: unknown, fallback: string): string =>

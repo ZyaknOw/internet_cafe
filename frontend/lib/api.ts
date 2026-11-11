@@ -1,6 +1,6 @@
 import { supabase } from "./supabase/client";
 
-const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const apiUrl = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
 
 export async function apiFetch(path: string, init: RequestInit = {}) {
   const { data } = await supabase.auth.getSession();

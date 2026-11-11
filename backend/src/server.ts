@@ -1465,4 +1465,9 @@ app.post("/api/public/register", async (req, res) => {
 });
 
 app.use((error: Error, _req: express.Request, res: express.Response, _next: express.NextFunction) => { console.error(error); res.status(500).json({ error: "Unexpected server error" }); });
-app.listen(Number(process.env.PORT ?? 4000), () => console.log(`NetCafe backend listening on port ${process.env.PORT ?? 4000}`));
+export { app };
+
+// The combined production server imports this app without opening a second port.
+if (require.main === module) {
+  app.listen(Number(process.env.PORT ?? 4000), () => console.log(`NetCafe backend listening on port ${process.env.PORT ?? 4000}`));
+}

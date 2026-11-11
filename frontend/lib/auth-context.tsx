@@ -6,7 +6,7 @@ import { supabase } from "@/lib/supabase/client";
 import { subscribeToSession } from "@/lib/session-loader";
 import type { User } from "@supabase/supabase-js";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
 
 export type UserRole = "admin" | "staff" | "customer";
 

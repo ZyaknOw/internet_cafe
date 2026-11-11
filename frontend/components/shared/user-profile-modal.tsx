@@ -27,7 +27,7 @@ import {
 import { useAuth, AccountProfile } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
 
 const ROLE_LABEL: Record<string, string> = {
   admin: "Administrator",

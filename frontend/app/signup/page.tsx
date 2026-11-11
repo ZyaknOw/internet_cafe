@@ -7,7 +7,7 @@ import type { SignupFormValues } from "@/components/ether/signup-form";
 import { SignupSuccess } from "@/components/ether/signup-success";
 import { supabase } from "@/lib/supabase/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
 
 export default function SignupPage() {
   const router = useRouter();

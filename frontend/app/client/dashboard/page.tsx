@@ -127,7 +127,7 @@ function orderToTransactionRow(order: OrderRecord): TransactionRow {
   };
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
 
 // Mirrors the staff / cashier "Cafe Orders" menu exactly so both portals stay in sync.
 const COFFEE_PRODUCTS: CoffeeProduct[] = SNACK_PRODUCTS;

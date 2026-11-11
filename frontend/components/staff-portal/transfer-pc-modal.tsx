@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { supabase } from "@/lib/supabase/client";
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
 export const stationIdentity = (name: string) => name.trim().toUpperCase().replace(/^PC[ -]*0*([1-9][0-9]*)( .*)?$/, "PC-$1");
 
 export interface TransferredSession {

@@ -139,7 +139,7 @@ interface StationEditorState {
   specs: string;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
 
 const DEFAULT_STATIONS: StationItem[] = Array.from({ length: 8 }, (_, i) => {
   const num = String(i + 1).padStart(2, "0");

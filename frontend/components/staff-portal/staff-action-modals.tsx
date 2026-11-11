@@ -31,7 +31,7 @@ interface ActionModalProps {
   onDataChanged?: () => void;
 }
 
-const API_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000";
+const API_URL = process.env.NEXT_PUBLIC_API_URL ?? (process.env.NODE_ENV === "production" ? "" : "http://localhost:4000");
 
 // ── Snack / pre-order queue (public.orders, migration 008) ───────────────────
 // The front desk queue is DB-backed: POST /api/client/orders writes the ticket
