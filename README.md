@@ -22,6 +22,8 @@ Change the existing Web App's settings; no second website is needed:
 The root build installs both apps from their committed lockfiles, compiles
 `backend/dist`, and builds `frontend/.next` with Webpack. Keep both directories,
 their dependencies, and `server.js` in the deployment. Never upload `.env` files.
+The root `postinstall` script runs this build automatically during `npm install`,
+including in Hostinger's Express preset when no build-command field is shown.
 
 Set these environment variables in Hostinger before building:
 
