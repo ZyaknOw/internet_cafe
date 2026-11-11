@@ -2,6 +2,7 @@
 @import "tailwindcss";
 
 :root {
+  --font-playfair: Georgia, "Times New Roman", serif;
   --olive: #233027;
   --olive-2: #2c3a2f;
   --olive-3: #1a2319;
