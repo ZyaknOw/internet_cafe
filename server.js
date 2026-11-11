@@ -2,27 +2,7 @@ const { createServer } = require("node:http");
 const path = require("node:path");
 const { createRequire } = require("node:module");
 
-function createRequestHandler(api, website) {
-  return async (req, res) => {
-    try {
-      const pathname = new URL(req.url, "http://localhost").pathname;
-      if (pathname === "/api" || pathname.startsWith("/api/") ||
-          pathname === "/health" || pathname.startsWith("/health/")) {
-        api(req, res, () => {
-          res.writeHead(404, { "Content-Type": "application/json" });
-          res.end(JSON.stringify({ error: "API endpoint not found" }));
-        });
-      } else {
-        // Let Next.js read its own request bodies (including Server Actions).
-        await website(req, res);
-      }
-    } catch (error) {
-      console.error("Request failed", error);
-      if (!res.headersSent) res.writeHead(500);
-      res.end();
-    }
-  };
-}
+const { createRequestHandler } = require("./lib/request-handler.cjs");
 
 async function start() {
   process.env.NODE_ENV = "production";
@@ -42,11 +22,9 @@ async function start() {
   });
 }
 
-if (require.main === module) {
-  start().catch((error) => {
-    console.error("Application startup failed", error);
-    process.exit(1);
-  });
-}
-
-module.exports = { createRequestHandler };
+// Hosting loaders can require the entry file instead of executing it directly.
+// Start in both cases; import the request handler separately in tests.
+start().catch((error) => {
+  console.error("Application startup failed", error);
+  process.exit(1);
+});

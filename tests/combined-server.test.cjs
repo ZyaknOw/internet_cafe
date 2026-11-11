@@ -1,7 +1,7 @@
 const { test } = require('node:test');
 const assert = require('node:assert/strict');
 const { createServer } = require('node:http');
-const { createRequestHandler } = require('../server.js');
+const { createRequestHandler } = require('../lib/request-handler.cjs');
 
 // Fake configuration is sufficient for these routes; no Supabase requests occur.
 process.env.SUPABASE_URL = 'https://example.supabase.co';
@@ -9,6 +9,37 @@ process.env.SUPABASE_SECRET_KEY = 'test-only-key';
 process.env.FRONTEND_URL = 'https://internetcafe.bscs4a.com';
 const { app } = require('../backend/dist/server.js');
 app.post('/api/test-body', (req, res) => res.json(req.body));
+
+test('a hosting loader requiring the entry file starts the listener', async () => {
+  const fs = require('node:fs');
+  const path = require('node:path');
+  const vm = require('node:vm');
+  const listeners = [];
+  const server = {
+    on() {},
+    listen(...args) { listeners.push(args.slice(0, 2)); },
+  };
+  const next = () => ({
+    prepare: async () => {},
+    getRequestHandler: () => () => {},
+  });
+  const loaderRequire = (name) => {
+    if (name === 'node:http') return { createServer: () => server };
+    if (name === 'node:module') return { createRequire: () => () => next };
+    if (name === './backend/dist/server.js') return { app: () => {} };
+    if (name === './lib/request-handler.cjs') return { createRequestHandler };
+    return require(name);
+  };
+  // Under a hosting loader, require.main is the loader, not this entry module.
+  loaderRequire.main = { filename: 'hosting-loader.js' };
+  vm.runInNewContext(fs.readFileSync(path.join(__dirname, '../server.js'), 'utf8'), {
+    require: loaderRequire, module: { exports: {} },
+    __dirname: path.join(__dirname, '..'), console,
+    process: { env: { PORT: '3210' }, exit() { assert.fail('Startup failed'); } },
+  });
+  await new Promise(resolve => setImmediate(resolve));
+  assert.deepEqual(listeners, [[3210, '0.0.0.0']]);
+});
 
 test('one listener serves API, health, and website requests without consuming page bodies', async (t) => {
   const websiteRequests = [];
