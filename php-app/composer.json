@@ -1,0 +1,19 @@
+{
+  "name": "netcafe/hostinger-php-migration",
+  "description": "Isolated PHP migration scaffold for the Internet Cafe Management System",
+  "type": "project",
+  "require": {
+    "php": ">=8.2",
+    "ext-curl": "*",
+    "ext-json": "*",
+    "ext-session": "*"
+  },
+  "autoload": {
+    "psr-4": {
+      "NetCafe\\": "app/"
+    }
+  },
+  "scripts": {
+    "test": "php tests/run.php"
+  }
+}
