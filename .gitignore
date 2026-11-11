@@ -13,6 +13,8 @@ node_modules/
 # Build output
 .next/
 **/.next/
+next.config.compiled.js
+*.next.config.ts
 out/
 **/out/
 dist/
