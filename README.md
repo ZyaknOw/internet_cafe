@@ -45,6 +45,20 @@ any `NEXT_PUBLIC_` values because Next.js embeds them during the build.
 After deployment, `/health` should return `{"ok":true}`. Browser requests should
 use `https://internetcafe.bscs4a.com/api/...`, never `localhost:4000`.
 
+The listener opens before API/Next.js initialization. `/health/live` returns 200
+as soon as Node.js can accept requests. `/health/ready` returns 200 only when
+both apps are ready; pages return a short 503 response while starting. Startup
+logs show `entry-loaded`, `listening`, `loading-api`, `preparing-next`, and `ready`.
+A failure or a 60-second initialization timeout logs the blocked stage and exits
+with code 1 so the hosting runner can restart the app. Root `.env` loading uses
+the entry file location rather than the hosting runner's working directory.
+
+The runtime does not spawn Next.js as a child process or use a process manager.
+It defaults the libuv thread pool to 2 unless the platform already sets a value.
+If the hosting account is at its process/thread limit, free capacity through
+Hostinger Resource Usage or ask support to clear stale app processes before
+restarting. This can affect other websites sharing the same hosting plan.
+
 ## Local development
 
 The existing two-terminal development workflow remains available:
@@ -55,3 +69,6 @@ For a combined production run, provide the variables above in the process
 environment, then run `npm run build` and `npm start` from the repository root.
 The default local port is 3000. `npm test` builds the API and tests routing on a
 single HTTP port without accessing Supabase.
+After a successful build, `npm run test:production` verifies actual direct and
+hosting-loader startup from an unrelated working directory, with fake database
+configuration and no authenticated database requests.
