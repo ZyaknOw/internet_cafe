@@ -123,6 +123,9 @@ test('one listener serves API, health, and website requests without consuming pa
     headers: { Origin: 'https://internetcafe.bscs4a.com' },
   });
   assert.equal(me.status, 401);
+  for (const route of ['/api/admin/activity', '/api/admin/reports']) {
+    assert.equal((await fetch(`${origin}${route}`)).status, 401);
+  }
   assert.equal(me.headers.get('access-control-allow-origin'), 'https://internetcafe.bscs4a.com');
 
   const posted = await fetch(`${origin}/api/test-body`, {

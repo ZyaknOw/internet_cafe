@@ -1,0 +1,33 @@
+.rubric-controls{display:flex;gap:14px;flex-wrap:wrap;align-items:end;margin:20px 0}
+.rubric-controls label{display:grid;gap:7px;font-size:13px;font-weight:600;color:#365446}
+.rubric-controls select,.rubric-controls input{padding:9px 12px;background:#fff;border:1px solid #cfddd3;border-radius:8px;min-height:40px}
+.rubric-controls p,.rubric-note{color:#607569;font-size:12px;line-height:1.7}
+.rubric-table-wrap{overflow-x:auto}
+.rubric-pagination{display:flex;align-items:center;justify-content:flex-end;gap:16px;margin-top:18px;font-size:13px}
+.rubric-pagination button{border:1px solid #c7d8cc;border-radius:7px;padding:9px 14px;background:#fff}
+.rubric-pagination button:disabled{opacity:.4;cursor:not-allowed}
+.rubric-analytics{margin:24px 0}
+.rubric-metrics{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:16px}
+.rubric-metrics article,.rubric-chart,.rubric-projection,.rubric-chart-data{background:#fff;border:1px solid #dce7df;border-radius:12px;padding:20px}
+.rubric-metrics small{color:#607569;font-size:12px}
+.rubric-metrics strong,.rubric-projection strong{display:block;font-size:24px;color:#153b27;margin-top:9px}
+.rubric-metrics p,.rubric-projection p{font-size:12px;color:#607569;line-height:1.6}
+.rubric-charts{display:grid;grid-template-columns:1fr;gap:16px;margin:18px 0}
+.rubric-chart{margin:0;min-width:0;overflow-x:auto}
+.rubric-chart figcaption{font-weight:700;color:#153b27;margin-bottom:16px}
+.rubric-chart svg{display:block;width:100%;height:auto;min-width:640px;min-height:150px}
+.rubric-projection{background:#f2f7f3}
+.rubric-projection h3{font-size:16px}
+.rubric-projection small{color:#607569}
+.rubric-chart-data{margin-top:16px}
+.rubric-chart-data summary{cursor:pointer;font-weight:600;color:#153b27}
+.rubric-chart-data table{margin-top:16px}
+.client-live-status{margin-top:12px;padding:12px;border:1px solid #dce7df;border-radius:10px;font-size:12px;color:#365446;display:flex;gap:12px;flex-wrap:wrap}
+.client-live-status strong{color:#143d28}
+@media(max-width:1050px){.rubric-charts{grid-template-columns:1fr}
+}
+@media(max-width:700px){.rubric-metrics{grid-template-columns:1fr}
+.rubric-controls label{flex:1;min-width:140px}
+.rubric-pagination{justify-content:center}
+.rubric-chart{padding:12px}
+}

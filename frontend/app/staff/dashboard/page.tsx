@@ -46,6 +46,8 @@ interface StaffOverviewData {
 interface PaidSnack { id: string; name: string; price: number; quantity: number }
 
 interface StationItem {
+  assignedPersonnel?: { name: string; role: "staff" | "admin" } | null;
+  sessionStatus?: "pending_client" | "active" | "awaiting_payment";
   id: string;
   name: string;
   type: "Standard" | "VIP";
@@ -547,6 +549,7 @@ export default function StaffDashboard() {
                 status: open.status === "awaiting_payment" ? "waiting" : "in-use",
                 customerName: open.customer_name || "Client",
                 customerProfileId: open.customer_profile_id,
+                sessionStatus: open.status as StationItem["sessionStatus"],
                 sessionId: open.id,
                 rate: Number(open.hourly_rate) || st.rate,
                 checkoutAt: open.checkout_at || undefined,
@@ -568,6 +571,8 @@ export default function StaffDashboard() {
               sessionId: undefined,
               startedAt: undefined,
               sessionStartedAt: undefined,
+              assignedPersonnel: null,
+              sessionStatus: undefined,
             };
           })
         );
@@ -1194,6 +1199,7 @@ export default function StaffDashboard() {
                           <div className="nodecafe-queue-info">
                             <div className="nodecafe-queue-name">{st.name} — {st.customerName}</div>
                             <div className="nodecafe-queue-meta">Time used: {stationElapsedTime(st)} · ₱{stationPaymentTotal(st).toFixed(2)}</div>
+                            <div className="nodecafe-queue-meta">Assigned by: {st.assignedPersonnel?.name ?? "Not recorded"} · {st.awaitingPayment ? "Awaiting payment" : st.sessionStatus === "pending_client" ? "Waiting for client" : "In use"}</div>
                           </div>
                         </div>
                         <div className="nodecafe-queue-actions">
@@ -1283,6 +1289,9 @@ export default function StaffDashboard() {
                         </span>
                       </div>
 
+                      {st.sessionId && <p style={{ fontSize: 11, color: "#526b5b", margin: "4px 0" }}>
+                        Assigned by: {st.assignedPersonnel?.name ?? "Not recorded"}
+                      </p>}
                       <div style={{ fontSize: 11.5, color: "#6a887e", marginBottom: 8, lineHeight: 1.3 }}>
                         {st.status === "in-use" || st.awaitingPayment ? (
                              <span style={{ color: st.awaitingPayment ? "#92400e" : "#b91c1c", fontWeight: 600 }}>

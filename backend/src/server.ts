@@ -5,6 +5,8 @@ import { z } from "zod";
 import { AuthenticatedRequest, requireActiveUser, requireRole, requireSignedInProfile } from "./auth.js";
 import { supabaseAdmin } from "./supabase.js";
 import { STATION_HOURLY_RATE, stationHourlyRate } from "./pc-services.js";
+import { sessionPersonnel } from "./session-personnel.js";
+import { reportAnalytics, previousReportRange } from "./report-analytics.js";
 
 const app = express();
 app.use(cors({ origin: process.env.FRONTEND_URL ?? "http://localhost:3000" }));
@@ -192,6 +194,7 @@ app.patch("/api/me/profile", requireActiveUser, async (req: AuthenticatedRequest
   if (duplicate.isDuplicate) return res.status(409).json({ error: duplicate.reason });
 
   const updatePayload: Record<string, unknown> = {
+    last_modified_by_profile_id: req.profile!.id,
     first_name: p.firstName,
     middle_name: p.middleName ?? null,
     last_name: p.lastName,
@@ -231,6 +234,7 @@ app.patch("/api/admin/users/:id/profile", requireActiveUser, requireRole("admin"
   if (duplicate.isDuplicate) return res.status(409).json({ error: duplicate.reason });
 
   const updatePayload: Record<string, unknown> = {
+    last_modified_by_profile_id: req.profile!.id,
     first_name: p.firstName,
     middle_name: p.middleName ?? null,
     last_name: p.lastName,
@@ -272,6 +276,9 @@ app.delete("/api/admin/users/:id", requireActiveUser, requireRole("admin"), asyn
   }
 
   // Remove any associated station sessions
+  const { error: actorError } = await supabaseAdmin.from("account_profiles")
+    .update({ last_modified_by_profile_id: req.profile!.id }).eq("id", userId);
+  if (actorError) return res.status(500).json({ error: "Could not record the account deletion actor." });
   await supabaseAdmin.from("station_sessions").delete().eq("customer_profile_id", userId);
 
   // Delete profile
@@ -498,6 +505,7 @@ app.get("/api/stations", requireActiveUser, requireRole("admin", "staff"), async
 
     if (sessionsError) return res.status(500).json({ error: "Could not load station availability." });
 
+    const personnel = await sessionPersonnel(supabaseAdmin, openSessions || []);
     const occupiedIdentities = new Set((openSessions || []).flatMap((session) => [
       stationIdentity(String(session.station_key)), stationIdentity(String(session.station_name)),
     ]));
@@ -524,6 +532,7 @@ app.get("/api/stations", requireActiveUser, requireRole("admin", "staff"), async
         status: s ? "in-use" : "available",
         transferAvailable: !occupiedIdentities.has(stationIdentity(st.name)) && ["available", "in_use"].includes(st.status),
         customerName: s ? s.customer_name : undefined,
+        assignedPersonnel: s ? personnel.get(s.created_by_profile_id) ?? null : null,
         startedAt: s ? (s.started_at ? new Date(s.started_at).toISOString() : "Waiting for client") : undefined,
         sessionStatus: s ? s.status : undefined,
       };
@@ -547,11 +556,13 @@ app.get("/api/client/stations", requireActiveUser, async (req: AuthenticatedRequ
 
     if (stErr) return res.status(500).json({ error: stErr.message });
 
-    const { data: openSessions } = await supabaseAdmin
+    const { data: openSessions, error: sessionsError } = await supabaseAdmin
       .from("station_sessions")
       .select("*")
       .in("status", ["pending_client", "active", "awaiting_payment"]);
 
+    if (sessionsError) return res.status(500).json({ error: "Could not load station sessions." });
+    const personnel = await sessionPersonnel(supabaseAdmin, openSessions || [], req.profile!.id);
     const openMap = new Map();
     (openSessions || []).forEach((s) => {
       openMap.set(String(s.station_key).toUpperCase(), s);
@@ -579,6 +590,8 @@ app.get("/api/client/stations", requireActiveUser, async (req: AuthenticatedRequ
         mine: Boolean(s && viewerProfileId && s.customer_profile_id === viewerProfileId),
         // Billing snapshot is only exposed for the viewer's own session.
         ...(s && s.customer_profile_id === viewerProfileId ? {
+          sessionId: s.id,
+          assignedPersonnel: personnel.get(s.created_by_profile_id) ?? null,
           sessionRate: Number(s.hourly_rate ?? st.hourly_rate),
           billingPausedMs: Number(s.billing_paused_ms || 0),
           checkoutDurationSeconds: s.checkout_duration_seconds ?? null,
@@ -1011,28 +1024,61 @@ app.get("/api/staff/orders", requireActiveUser, requireRole("admin", "staff"), a
 });
 
 // Admin PC revenue report for a Manila calendar day, month, or year.
+const activityQuery = z.object({
+  page: z.coerce.number().int().min(1).max(10000).default(1),
+  action: z.enum(["account.created", "account.approved", "account.rejected", "account.updated",
+    "account.deleted", "account.password_setup_completed"]).optional(),
+  from: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+  to: z.string().regex(/^\d{4}-\d{2}-\d{2}$/).optional(),
+});
+app.get("/api/admin/activity", requireActiveUser, requireRole("admin"), async (req, res) => {
+  const input = activityQuery.safeParse(req.query);
+  if (!input.success) return res.status(400).json({ error: "Choose valid history filters." });
+  const { page, action, from, to } = input.data;
+  const fromRange = from ? manilaReportRange("daily", from) : null;
+  const toRange = to ? manilaReportRange("daily", to) : null;
+  if ((from && !fromRange) || (to && !toRange) || (from && to && from > to)) {
+    return res.status(400).json({ error: "Choose a valid date range." });
+  }
+  let query = supabaseAdmin.from("account_activity_log")
+    .select("id,occurred_at,actor_name,actor_role,target_name,target_role,action,details", { count: "exact" })
+    .order("occurred_at", { ascending: false }).order("id", { ascending: false });
+  if (action) query = query.eq("action", action);
+  if (fromRange) query = query.gte("occurred_at", fromRange.start.toISOString());
+  if (toRange) query = query.lt("occurred_at", toRange.end.toISOString());
+  const { data, error, count } = await query.range((page - 1) * 25, page * 25 - 1);
+  if (error) return res.status(503).json({ error: "Account activity history is unavailable. Please contact the administrator." });
+  res.json({ events: data ?? [], page, pageSize: 25, total: count ?? 0 });
+});
+
 app.get("/api/admin/reports", requireActiveUser, requireRole("admin"), async (req, res) => {
   const input = adminReportQuery.safeParse(req.query);
   if (!input.success) return res.status(400).json({ error: "Choose a valid report period and date." });
   const range = manilaReportRange(input.data.period, input.data.date);
   if (!range) return res.status(400).json({ error: "Choose a valid calendar date." });
 
+  const previousRange = previousReportRange(range, input.data.period);
+  const reportNow = new Date();
   const rows: any[] = [];
   for (let offset = 0; ; offset += 1000) {
     const { data, error } = await supabaseAdmin.from("station_sessions")
       .select("id, station_key, station_name, customer_name, started_at, ended_at, checkout_duration_seconds, billing_paused_ms, checkout_total, total, payment_method")
       .eq("status", "ended")
       .not("ended_at", "is", null)
-      .gte("ended_at", range.start.toISOString())
+      .gte("ended_at", previousRange.start.toISOString())
       .lt("ended_at", range.end.toISOString())
+      .lte("ended_at", reportNow.toISOString())
       .order("ended_at", { ascending: false })
+      .order("id", { ascending: false })
       .range(offset, offset + 999);
     if (error) return res.status(500).json({ error: "Could not load the PC revenue report." });
     rows.push(...(data ?? []));
     if (!data || data.length < 1000) break;
   }
 
-  const transactions = rows.map((session) => {
+  const previousRows = rows.filter(session => new Date(session.ended_at) < range.start);
+  const currentRows = rows.filter(session => new Date(session.ended_at) >= range.start);
+  const transactions = currentRows.map((session) => {
     const started = session.started_at ? new Date(session.started_at).getTime() : 0;
     const ended = session.ended_at ? new Date(session.ended_at).getTime() : 0;
     const hours = session.checkout_duration_seconds != null
@@ -1058,10 +1104,11 @@ app.get("/api/admin/reports", requireActiveUser, requireRole("admin"), async (re
     date: input.data.date,
     range: { start: range.start.toISOString(), end: range.end.toISOString() },
     transactions,
+    analytics: reportAnalytics(currentRows, previousRows, range, input.data.period, reportNow),
     summary: {
       totalRevenue: transactions.reduce((sum, transaction) => sum + transaction.amount, 0),
       sessionCount: transactions.length,
-      totalHours: rows.reduce((sum, session) => sum + (session.checkout_duration_seconds != null
+      totalHours: currentRows.reduce((sum, session) => sum + (session.checkout_duration_seconds != null
         ? Math.max(0, Number(session.checkout_duration_seconds) / 3600)
         : session.started_at && session.ended_at
           ? Math.max(0, (new Date(session.ended_at).getTime() - new Date(session.started_at).getTime() - Number(session.billing_paused_ms || 0)) / 3_600_000)
@@ -1324,6 +1371,7 @@ app.post("/api/admin/account-requests/:profileId/approve", requireActiveUser, re
       auth_user_id: authUserId,
       status: "active",
       approved_by_profile_id: req.profile!.id,
+      last_modified_by_profile_id: req.profile!.id,
       approved_at: new Date().toISOString(),
       updated_at: new Date().toISOString(),
       must_change_password: true,
@@ -1343,9 +1391,10 @@ app.post("/api/admin/account-requests/:profileId/approve", requireActiveUser, re
 });
 
 // Reject pending account
-app.post("/api/admin/account-requests/:profileId/reject", requireActiveUser, requireRole("admin"), async (req, res) => {
+app.post("/api/admin/account-requests/:profileId/reject", requireActiveUser, requireRole("admin"), async (req: AuthenticatedRequest, res) => {
   const { data, error } = await supabaseAdmin.from("account_profiles").update({
     status: "rejected",
+    last_modified_by_profile_id: req.profile!.id,
     updated_at: new Date().toISOString(),
   }).eq("id", req.params.profileId).select().single();
 
@@ -1357,6 +1406,7 @@ app.post("/api/admin/account-requests/:profileId/reject", requireActiveUser, req
 app.post("/api/auth/complete-password-change", requireSignedInProfile, async (req: AuthenticatedRequest, res) => {
   const { data, error } = await supabaseAdmin.from("account_profiles").update({
     must_change_password: false,
+    last_modified_by_profile_id: req.profile!.id,
     updated_at: new Date().toISOString(),
   }).eq("id", req.profile!.id).select().single();
 

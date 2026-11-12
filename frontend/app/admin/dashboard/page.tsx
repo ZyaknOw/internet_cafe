@@ -7,6 +7,8 @@ import { PendingAccountsModal } from "@/components/admin-portal/pending-accounts
 import { RegisterUserModal } from "@/components/admin-portal/register-user-modal";
 import { AdminActionModals } from "@/components/admin-portal/admin-action-modals";
 import { UserProfileModal } from "@/components/shared/user-profile-modal";
+import { AccountActivityPanel } from "@/components/admin-portal/account-activity-panel";
+import { ReportAnalyticsPanel, type ReportAnalytics } from "@/components/admin-portal/report-analytics-panel";
 import { useAuth } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase/client";
 import {
@@ -160,7 +162,7 @@ export default function AdminDashboard() {
   const router = useRouter();
   const { profile, logout } = useAuth();
 
-  const [activeTab, setActiveTab] = useState<"overview" | "clients" | "pc-stations" | "transactions">("overview");
+  const [activeTab, setActiveTab] = useState<"overview" | "clients" | "pc-stations" | "transactions" | "activity">("overview");
 
   const [overview, setOverview] = useState<AdminOverviewData>({
     dailyRevenue: 0,
@@ -196,6 +198,7 @@ export default function AdminDashboard() {
   const [transactionSummary, setTransactionSummary] = useState<AdminReportSummary>(EMPTY_REPORT_SUMMARY);
   const [transactionsLoaded, setTransactionsLoaded] = useState(false);
   const [transactionsError, setTransactionsError] = useState("");
+  const [analytics, setAnalytics] = useState<ReportAnalytics | null>(null);
 
   // Pending queue items (loaded from the database — no mock rows)
   const [pendingList, setPendingList] = useState<PendingItem[]>([]);
@@ -386,12 +389,15 @@ export default function AdminDashboard() {
       const body = await res.json() as {
         transactions?: AdminTransaction[];
         summary?: AdminReportSummary;
+        analytics?: ReportAnalytics;
       };
       setTransactions(body.transactions || []);
       setTransactionSummary(body.summary || EMPTY_REPORT_SUMMARY);
+      setAnalytics(body.analytics ?? null);
     } catch (error) {
       setTransactions([]);
       setTransactionSummary(EMPTY_REPORT_SUMMARY);
+      setAnalytics(null);
       setTransactionsError(error instanceof Error ? error.message : "Could not load this report.");
     } finally {
       setTransactionsLoaded(true);
@@ -588,6 +594,8 @@ export default function AdminDashboard() {
               <span>Reports</span>
             </button>
 
+            <button className={`nodecafe-nav-item ${activeTab === "activity" ? "active" : ""}`}
+              onClick={() => setActiveTab("activity")}><ShieldCheck size={17} /><span>Account History</span></button>
           </nav>
         </div>
 
@@ -680,6 +688,7 @@ export default function AdminDashboard() {
         {/* -------------------------------------------------------------
             TAB 1: OVERVIEW DASHBOARD
             ------------------------------------------------------------- */}
+        {activeTab === "activity" && <AccountActivityPanel />}
         {activeTab === "overview" && (
           <div className="nodecafe-page-view">
             {/* Top 4 Statistic Cards */}
@@ -1127,10 +1136,23 @@ export default function AdminDashboard() {
               <button
                 className="nodecafe-btn-primary"
                 style={{ width: "auto", padding: "10px 18px" }}
-                onClick={() => setActiveActionModal("revenue-report")}
+                disabled={!transactionsLoaded || Boolean(transactionsError)}
+                onClick={() => {
+                  const escape = (value: string | number) => {
+                    const text = String(value);
+                    const safe = /^[=+@\-\t\r]/.test(text) ? `'${text}` : text;
+                    return `"${safe.replaceAll('"', '""')}"`;
+                  };
+                  const rows = [["Session", "Customer", "Service", "PC revenue (PHP)", "Payment", "Ended at (UTC)"],
+                    ...transactions.map(item => [item.id, item.customer, item.service, item.amount, item.method, item.timestamp ?? ""])];
+                  const url = URL.createObjectURL(new Blob(["\uFEFF", rows.map(row => row.map(escape).join(",")).join("\r\n")], { type: "text/csv;charset=utf-8" }));
+                  const link = document.createElement("a"); link.href = url;
+                  link.download = `pc-revenue-${reportPeriod}-${reportDate}.csv`; link.click();
+                  setTimeout(() => URL.revokeObjectURL(url), 1000);
+                }}
               >
                 <Receipt size={15} />
-                <span>Export Detailed Ledger</span>
+                <span>Export Report CSV</span>
               </button>
             </div>
 
@@ -1191,6 +1213,7 @@ export default function AdminDashboard() {
               </div>
             </div>
 
+            {transactionsLoaded && !transactionsError && <ReportAnalyticsPanel data={analytics} />}
             {transactionsError && <p className="admin-report-error" role="alert">{transactionsError}</p>}
 
             {/* Recent transactions by default; search to find older client purchases. */}

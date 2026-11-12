@@ -10,6 +10,7 @@ import { SNACK_PRODUCTS } from "@/lib/snack-menu";
 import { clientSessionUsage, type ClientSessionStation } from "@/lib/client-session-usage";
 import { PC_SERVICE } from "../../../../backend/src/pc-services";
 import { ReceiptDetailsModal, type ReceiptRecord } from "@/components/shared/receipt-details-modal";
+import "@/components/admin-portal/rubric-panels.css";
 import {
   Bell,
   Monitor,
@@ -49,6 +50,7 @@ interface CartItem extends CoffeeProduct {
 // Live rig state from GET /api/client/stations — the same shape the staff
 // Workstation Live Control Board renders.
 interface StationItem extends ClientSessionStation {
+  assignedPersonnel?: { name: string; role: "staff" | "admin" } | null;
   id: string;
   name: string;
   type: "Standard" | "VIP";
@@ -150,6 +152,8 @@ export default function ClientDashboard() {
   // Live workstation board (read from the stations table through the API)
   const [stations, setStations] = useState<StationItem[]>([]);
   const [stationsLoaded, setStationsLoaded] = useState(false);
+  const [stationsError, setStationsError] = useState("");
+  const [lastStationSync, setLastStationSync] = useState<number | null>(null);
 
   // Coffee order form — auto-filled with the station this client is signed in on
   const [orderStation, setOrderStation] = useState("");
@@ -196,24 +200,28 @@ export default function ClientDashboard() {
   });
 
   // ── Live floor board (DB-backed, mirrors the staff station board) ─────────
-  const fetchStations = useCallback(async () => {
+  const fetchStations = useCallback(async (signal?: AbortSignal) => {
     try {
       const { data: { session } } = await supabase.auth.getSession();
       const token = session?.access_token;
       const res = await fetch(`${API_URL}/api/client/stations`, {
+        signal,
         headers: {
           "Content-Type": "application/json",
           ...(token ? { Authorization: `Bearer ${token}` } : {}),
         },
       });
-      if (!res.ok) return;
+      if (!res.ok) throw new Error("Could not refresh workstation status.");
       const body = await res.json() as { stations?: StationItem[] };
+      if (signal?.aborted) return;
       // Keep the server's ISO start time for elapsed-time calculations.
       setStations(body.stations || []);
       setLiveNow(Date.now());
       setStationsLoaded(true);
+      setStationsError("");
+      setLastStationSync(Date.now());
     } catch {
-      // silent
+      if (!signal?.aborted) setStationsError("Could not refresh workstation status. The last snapshot may be outdated.");
     }
   }, []);
 
@@ -225,10 +233,11 @@ export default function ClientDashboard() {
   }, [fetchStations]);
 
   useEffect(() => {
+    const controller = new AbortController();
     // The first snapshot read sits inside the async continuation so the resulting
     // state updates land outside the effect body (react-hooks/set-state-in-effect).
     void (async () => {
-      await fetchStations();
+      await fetchStations(controller.signal);
     })();
 
     const channel = supabase
@@ -237,19 +246,23 @@ export default function ClientDashboard() {
         "postgres_changes",
         { event: "*", schema: "public", table: "stations" },
         () => {
-          void fetchStations();
+          void fetchStations(controller.signal);
         }
       )
       .on(
         "postgres_changes",
         { event: "*", schema: "public", table: "station_sessions" },
         () => {
-          void fetchStations();
+          void fetchStations(controller.signal);
         }
       )
       .subscribe();
 
+    // Also refresh when Realtime delivery is unavailable on the hosting network.
+    const poll = setInterval(() => { void fetchStations(controller.signal); }, 15_000);
     return () => {
+      controller.abort();
+      clearInterval(poll);
       void supabase.removeChannel(channel);
     };
   }, [fetchStations]);
@@ -646,10 +659,20 @@ export default function ClientDashboard() {
                 <div className="nodecafe-card-kicker">Live Workstation</div>
                 <div className="nodecafe-card-header">
                   <h2 className="nodecafe-card-title">Session at Station {myStation ? myStation.name : "—"}</h2>
-                  <span className={`nodecafe-status-chip ${myStation ? "active" : "pending"}`}>
-                    {myStation ? "Connected" : "Idle"}
+                  <span className={`nodecafe-status-chip ${sessionRunning ? "active" : "pending"}`}>
+                    {myStation?.sessionStatus === "awaiting_payment" ? "Awaiting payment"
+                      : myStation?.sessionStatus === "pending_client" ? "Waiting for client"
+                      : sessionRunning ? "In use" : stationsLoaded ? "Idle" : "Checking assignment"}
                   </span>
                 </div>
+
+                <div className="client-live-status" aria-live="polite">
+                  <span>Account: <strong>{profile?.status ?? "Checking"}</strong></span>
+                  <span>Assigned by: <strong>{myStation ? myStation.assignedPersonnel?.name ?? "Not recorded" : "No PC assignment"}</strong>
+                    {myStation?.assignedPersonnel && ` (${myStation.assignedPersonnel.role})`}</span>
+                  <span>Last synced: <strong>{lastStationSync ? new Date(lastStationSync).toLocaleTimeString("en-PH", { timeZone: "Asia/Manila" }) + " PHT" : "Not yet synced"}</strong></span>
+                </div>
+                {stationsError && <p role="alert" style={{ color: "#a33d23", fontSize: 12 }}>{stationsError}</p>}
 
                 <div style={{ background: "#fbfcfb", border: "1px solid #edf2ef", borderRadius: 14, padding: "20px 22px", marginBottom: 18 }}>
                   <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 14 }}>
