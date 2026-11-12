@@ -577,6 +577,13 @@ app.get("/api/client/stations", requireActiveUser, async (req: AuthenticatedRequ
         startedAt: s ? (s.started_at ? new Date(s.started_at).toISOString() : "Waiting for client") : undefined,
         sessionStatus: s ? s.status : undefined,
         mine: Boolean(s && viewerProfileId && s.customer_profile_id === viewerProfileId),
+        // Billing snapshot is only exposed for the viewer's own session.
+        ...(s && s.customer_profile_id === viewerProfileId ? {
+          sessionRate: Number(s.hourly_rate ?? st.hourly_rate),
+          billingPausedMs: Number(s.billing_paused_ms || 0),
+          checkoutDurationSeconds: s.checkout_duration_seconds ?? null,
+          checkoutTotal: s.checkout_total ?? null,
+        } : {}),
       };
     });
 

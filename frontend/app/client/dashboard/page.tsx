@@ -7,6 +7,7 @@ import { UserProfileModal } from "@/components/shared/user-profile-modal";
 import { useAuth } from "@/lib/auth-context";
 import { supabase } from "@/lib/supabase/client";
 import { SNACK_PRODUCTS } from "@/lib/snack-menu";
+import { clientSessionUsage, type ClientSessionStation } from "@/lib/client-session-usage";
 import { PC_SERVICE } from "../../../../backend/src/pc-services";
 import { ReceiptDetailsModal, type ReceiptRecord } from "@/components/shared/receipt-details-modal";
 import {
@@ -47,7 +48,7 @@ interface CartItem extends CoffeeProduct {
 
 // Live rig state from GET /api/client/stations — the same shape the staff
 // Workstation Live Control Board renders.
-interface StationItem {
+interface StationItem extends ClientSessionStation {
   id: string;
   name: string;
   type: "Standard" | "VIP";
@@ -55,7 +56,7 @@ interface StationItem {
   specs: string;
   status: "available" | "in-use" | "waiting";
   startedAt?: string;
-  sessionStatus?: "pending_client" | "active";
+  sessionStatus?: "pending_client" | "active" | "awaiting_payment";
   mine?: boolean;
 }
 
@@ -144,7 +145,7 @@ export default function ClientDashboard() {
   const [profileInitialTab, setProfileInitialTab] = useState<"profile" | "password">("profile");
   const [toast, setToast] = useState<string | null>(null);
 
-  const [sessionSeconds, setSessionSeconds] = useState(2520); // 42 minutes default
+  const [liveNow, setLiveNow] = useState(0);
 
   // Live workstation board (read from the stations table through the API)
   const [stations, setStations] = useState<StationItem[]>([]);
@@ -208,15 +209,9 @@ export default function ClientDashboard() {
       });
       if (!res.ok) return;
       const body = await res.json() as { stations?: StationItem[] };
-      setStations(
-        (body.stations || []).map((st) => ({
-          ...st,
-          startedAt:
-            st.startedAt && st.startedAt !== "Waiting for client"
-              ? new Date(st.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
-              : st.startedAt,
-        }))
-      );
+      // Keep the server's ISO start time for elapsed-time calculations.
+      setStations(body.stations || []);
+      setLiveNow(Date.now());
       setStationsLoaded(true);
     } catch {
       // silent
@@ -302,6 +297,10 @@ export default function ClientDashboard() {
   const availableStations = stations.filter((s) => s.status === "available").length;
   const inUseStations = stations.filter((s) => s.status === "in-use").length;
   const myStation = stations.find((s) => s.mine) ?? null;
+  const sessionUsage = clientSessionUsage(myStation, liveNow);
+  const sessionSeconds = sessionUsage.seconds;
+  const sessionRunning = myStation?.sessionStatus === "active" && Boolean(myStation.startedAt);
+  const sessionRate = myStation ? sessionUsage.rate : PC_SERVICE.hourlyRate;
 
   // Delivery target for café orders — what the client typed in the café tab,
   // otherwise the rig they are signed in on, otherwise the front desk.
@@ -457,13 +456,14 @@ export default function ClientDashboard() {
     return () => clearInterval(interval);
   }, [profile]);
 
-  // Session timer ticker
+  // Only an assigned, active PC session advances the displayed timer.
   useEffect(() => {
+    if (!sessionRunning) return;
     const timer = setInterval(() => {
-      setSessionSeconds((prev) => prev + 1);
+      setLiveNow(Date.now());
     }, 1000);
     return () => clearInterval(timer);
-  }, []);
+  }, [sessionRunning]);
 
   const formatTimer = (totalSecs: number) => {
     const hrs = Math.floor(totalSecs / 3600);
@@ -648,7 +648,7 @@ export default function ClientDashboard() {
 
               <div className="nodecafe-kpi-card">
                 <div className="nodecafe-kpi-label">Hourly Rate</div>
-                <div className="nodecafe-kpi-val">₱{PC_SERVICE.hourlyRate.toFixed(2)}</div>
+                <div className="nodecafe-kpi-val">₱{sessionRate.toFixed(2)}</div>
                 <div className="nodecafe-kpi-sub">
                   {myStation ? `${myStation.type} Rig Tier` : "Pick a rig at the front desk"}
                 </div>
@@ -688,7 +688,7 @@ export default function ClientDashboard() {
                     <div style={{ textAlign: "right" }}>
                       <div style={{ fontSize: 12, color: "#6a887e", fontWeight: 600 }}>Current Accrued Total</div>
                       <div style={{ fontSize: 26, fontWeight: 800, color: "#166534", marginTop: 4 }}>
-                        ₱{((sessionSeconds / 3600) * PC_SERVICE.hourlyRate).toFixed(2)}
+                        ₱{sessionUsage.total.toFixed(2)}
                       </div>
                     </div>
                   </div>
@@ -879,7 +879,9 @@ export default function ClientDashboard() {
                         <div style={{ fontSize: 11.5, color: "#6a887e", marginBottom: 8, lineHeight: 1.3 }}>
                           {st.status === "in-use" ? (
                             <span style={{ color: "#b91c1c", fontWeight: 600 }}>
-                              {st.mine ? `${displayName} (${st.startedAt})` : `In session (${st.startedAt})`}
+                              {st.mine ? displayName : "In session"} ({st.startedAt && st.startedAt !== "Waiting for client"
+                                ? new Date(st.startedAt).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" })
+                                : st.startedAt})
                             </span>
                           ) : (
                             st.specs
