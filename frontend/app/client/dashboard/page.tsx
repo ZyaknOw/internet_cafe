@@ -160,12 +160,11 @@ export default function ClientDashboard() {
   const [cart, setCart] = useState<CartItem[]>([]);
   const [showCart, setShowCart] = useState(false);
 
-  // ── Snack order billing (confirmation modal → member balance charge) ──────
+  // Snack orders are confirmed here and collected by the cashier.
   const [confirmOrderOpen, setConfirmOrderOpen] = useState(false);
   const [placedOrder, setPlacedOrder] = useState<PlacedOrder | null>(null);
   const [transactions, setTransactions] = useState<TransactionRow[]>([]);
   const [selectedReceipt, setSelectedReceipt] = useState<ReceiptRecord | null>(null);
-  const [nextTransactionSerial, setNextTransactionSerial] = useState(8802);
   const [orderSubmitting, setOrderSubmitting] = useState(false);
   const [orderError, setOrderError] = useState("");
 
@@ -345,42 +344,16 @@ export default function ClientDashboard() {
     setOrderError("");
   };
 
-  // Step 2: confirming bills the order to the member balance and writes the ticket
-  // to public.orders through POST /api/client/orders, so the front desk queue picks
-  // it up. The DB-issued ORD-#### reference comes back as the receipt, and the
-  // charge is logged in the Billing & Transaction History tab.
+  // Confirming creates an unpaid ticket for the cashier. Only a successfully
+  // saved API order may appear as sent or enter the transaction history.
   const confirmCoffeeOrder = async () => {
     if (cart.length === 0 || orderSubmitting) return;
 
     const items = cart.map((item) => ({ ...item }));
-    const total = cartTotal;
     const station = deliveryStation;
     // The client chooses how they will pay, but the cashier is the one who takes
     // the money — this is just a preference shown on the ticket.
     const paymentMethod = "Pay at Counter";
-    const offlineReference = `TXN-${nextTransactionSerial}`;
-
-    // Used only when the API is unreachable or migration 008 is not applied yet:
-    // the receipt and history row then stay local so the client is never blocked.
-    const saveLocally = () => {
-      const timestamp = new Date().toLocaleString("en-US", { month: "short", day: "numeric", year: "numeric", hour: "numeric", minute: "2-digit" });
-      setPlacedOrder({ reference: offlineReference, items, total, station, paymentMethod, timestamp });
-      setTransactions((prev) => [
-        {
-          id: offlineReference,
-          service: `Snack Order (${describeOrderItems(items)})`,
-          amount: total,
-          method: paymentMethod,
-          date: timestamp,
-          status: "Awaiting Payment",
-        },
-        ...prev,
-      ]);
-      setNextTransactionSerial((serial) => serial + 1);
-      clearCart();
-      setShowCart(false);
-      showToast(`☕ Order sent to the front desk! ₱${total.toFixed(2)} for ${station} — pay at the counter.`);
-    };
 
     setOrderSubmitting(true);
     setOrderError("");
@@ -400,7 +373,7 @@ export default function ClientDashboard() {
 
       if (res.ok && body.order) {
         const order = body.order;
-        const chargedTotal = Number(order.total) || total;
+        const chargedTotal = Number(order.total) || cartTotal;
         setPlacedOrder({
           reference: order.reference,
           items,
@@ -417,16 +390,9 @@ export default function ClientDashboard() {
         return;
       }
 
-      // A refused order or an invalid basket has to be fixed by the client, so it
-      // is surfaced instead of being re-booked locally.
-      if (res.status === 402 || res.status === 400) {
-        setOrderError(body.error || "This order could not be sent to the front desk.");
-        return;
-      }
-
-      saveLocally();
+      setOrderError(body.error || "This order could not be sent to the front desk. Please try again.");
     } catch {
-      saveLocally();
+      setOrderError("Could not reach the front desk. Check your connection and try again.");
     } finally {
       setOrderSubmitting(false);
     }
@@ -536,6 +502,14 @@ export default function ClientDashboard() {
             >
               <Monitor size={17} />
               <span>PC Stations</span>
+            </button>
+
+            <button
+              className={`nodecafe-nav-item ${activeTab === "coffee" ? "active" : ""}`}
+              onClick={() => setActiveTab("coffee")}
+            >
+              <Coffee size={17} />
+              <span>Snacks</span>
             </button>
 
             <button
@@ -701,6 +675,14 @@ export default function ClientDashboard() {
 
                 <div style={{ display: "flex", gap: 12 }}>
                   <button
+                    className="nodecafe-btn-primary"
+                    onClick={() => setActiveTab("coffee")}
+                    style={{ flex: 1 }}
+                  >
+                    <Coffee size={16} />
+                    <span>Order Snacks to {myStation ? myStation.name : "your station"}</span>
+                  </button>
+                  <button
                     className="nodecafe-btn-decline"
                     onClick={() => {
                       showToast("Front desk alerted! A staff member is on their way to your station.");
@@ -721,6 +703,20 @@ export default function ClientDashboard() {
                 </div>
 
                 <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
+                  <button
+                    className="nodecafe-btn-decline"
+                    style={{ textAlign: "left", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}
+                    onClick={() => setActiveTab("coffee")}
+                  >
+                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                      <Coffee size={16} color="#0b2b23" />
+                      <div>
+                        <b style={{ color: "#091c17", fontSize: 13 }}>Pre-order Snacks</b>
+                        <div style={{ fontSize: 11, color: "#6a887e" }}>Delivered to your PC seat</div>
+                      </div>
+                    </div>
+                    <ArrowRight size={14} color="#6a887e" />
+                  </button>
                   <button
                     className="nodecafe-btn-decline"
                     style={{ textAlign: "left", padding: "12px 16px", display: "flex", alignItems: "center", justifyContent: "space-between" }}
@@ -953,7 +949,7 @@ export default function ClientDashboard() {
         {/* -------------------------------------------------------------
             TAB 4: CAFÉ ORDERS (mirrors the staff / cashier menu)
             ------------------------------------------------------------- */}
-        {false && activeTab === "coffee" && (
+        {activeTab === "coffee" && (
           <div className="nodecafe-page-view">
             {/* ── Page Title + Controls ─────────────────────────────────── */}
             <div className="cafe-orders-header">
